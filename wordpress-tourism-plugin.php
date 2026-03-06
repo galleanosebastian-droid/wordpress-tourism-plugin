@@ -35,12 +35,15 @@ class WTP_Tourism_Plugin {
 	 */
 	public function init() {
 		add_action( 'init', array( $this, 'register_post_type' ) );
+		add_action( 'init', array( $this, 'register_shortcodes' ) );
 		add_action( 'add_meta_boxes', array( $this, 'register_meta_boxes' ) );
 		add_action( 'save_post_' . self::POST_TYPE, array( $this, 'save_package_meta' ), 10, 2 );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_frontend_assets' ) );
 		add_action( 'admin_menu', array( $this, 'register_admin_menu' ) );
 		add_action( 'admin_post_wtp_import_packages', array( $this, 'handle_import' ) );
 		add_action( 'admin_post_wtp_export_packages', array( $this, 'handle_export' ) );
+		add_filter( 'the_content', array( $this, 'render_single_package_content' ) );
 	}
 
 	/**
@@ -66,7 +69,8 @@ class WTP_Tourism_Plugin {
 			self::POST_TYPE,
 			array(
 				'labels'            => $labels,
-				'public'            => false,
+				'public'            => true,
+				'publicly_queryable'=> true,
 				'show_ui'           => true,
 				'show_in_menu'      => true,
 				'menu_position'     => 25,
@@ -74,9 +78,19 @@ class WTP_Tourism_Plugin {
 				'supports'          => array( 'title' ),
 				'capability_type'   => 'post',
 				'has_archive'       => false,
+				'rewrite'           => array( 'slug' => 'tour-package' ),
 				'show_in_rest'      => false,
 			)
 		);
+	}
+
+	/**
+	 * Register plugin shortcodes.
+	 *
+	 * @return void
+	 */
+	public function register_shortcodes() {
+		add_shortcode( 'tour_packages', array( $this, 'render_tour_packages_shortcode' ) );
 	}
 
 	/**
@@ -113,6 +127,212 @@ class WTP_Tourism_Plugin {
 
 		wp_enqueue_media();
 		wp_enqueue_script( 'jquery' );
+	}
+
+	/**
+	 * Enqueue frontend stylesheet.
+	 *
+	 * @return void
+	 */
+	public function enqueue_frontend_assets() {
+		$handle = 'wtp-frontend';
+		wp_register_style( $handle, false, array(), '1.1.0' );
+		wp_enqueue_style( $handle );
+
+		$css = '
+		.wtp-package-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;margin:1.5rem 0;}
+		.wtp-package-card{background:#fff;border:1px solid #e8ecf1;border-radius:14px;overflow:hidden;box-shadow:0 10px 25px rgba(15,23,42,.06);display:flex;flex-direction:column;height:100%;}
+		.wtp-package-card__media{aspect-ratio:16/10;background:#f4f7fb;overflow:hidden;}
+		.wtp-package-card__media img{width:100%;height:100%;object-fit:cover;display:block;}
+		.wtp-package-card__content{padding:1rem;display:flex;flex-direction:column;gap:.55rem;flex:1;}
+		.wtp-package-card__title{font-size:1.2rem;font-weight:700;line-height:1.3;margin:0;}
+		.wtp-meta{margin:0;padding:0;list-style:none;display:grid;gap:.35rem;color:#334155;}
+		.wtp-meta strong{color:#0f172a;}
+		.wtp-observation{margin:0;color:#475569;}
+		.wtp-card-actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:auto;padding-top:.4rem;}
+		.wtp-button{display:inline-flex;align-items:center;justify-content:center;padding:.65rem .95rem;border-radius:8px;text-decoration:none;font-weight:600;font-size:.95rem;transition:.2s ease;}
+		.wtp-button--primary{background:#0f172a;color:#fff;}
+		.wtp-button--primary:hover{background:#1e293b;color:#fff;}
+		.wtp-button--whatsapp{background:#25d366;color:#fff;}
+		.wtp-button--whatsapp:hover{background:#1fa855;color:#fff;}
+		.wtp-single{max-width:980px;margin:2rem auto;display:grid;gap:1.4rem;}
+		.wtp-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;}
+		.wtp-gallery img{width:100%;height:220px;object-fit:cover;border-radius:12px;box-shadow:0 10px 20px rgba(15,23,42,.08);}
+		.wtp-single__header h1{margin:.2rem 0;font-size:2rem;line-height:1.25;}
+		.wtp-detail-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.7rem 1rem;padding:0;margin:0;list-style:none;}
+		.wtp-detail-list li{padding:.7rem .85rem;background:#f8fafc;border-radius:10px;color:#334155;}
+		.wtp-detail-list strong{display:block;color:#0f172a;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem;}
+		.wtp-panel{background:#fff;border:1px solid #e8ecf1;border-radius:12px;padding:1rem;}
+		.wtp-panel h3{margin-top:0;font-size:1rem;}
+		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single__header h1{font-size:1.6rem;}}
+		';
+
+		wp_add_inline_style( $handle, $css );
+	}
+
+	/**
+	 * Render package list shortcode.
+	 *
+	 * @return string
+	 */
+	public function render_tour_packages_shortcode() {
+		$packages = get_posts(
+			array(
+				'post_type'      => self::POST_TYPE,
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+			)
+		);
+
+		if ( empty( $packages ) ) {
+			return '<p>' . esc_html__( 'No tourism packages available at the moment.', 'wordpress-tourism-plugin' ) . '</p>';
+		}
+
+		ob_start();
+		echo '<div class="wtp-package-grid">';
+		foreach ( $packages as $package ) {
+			$images          = get_post_meta( $package->ID, 'package_images', true );
+			$images          = is_array( $images ) ? $images : array();
+			$main_image      = ! empty( $images[0] ) ? $images[0] : '';
+			$destination     = $this->get_package_value( $package->ID, 'destination' );
+			$departure_date  = $this->format_departure_date( $this->get_package_value( $package->ID, 'departure_date' ) );
+			$number_of_days  = $this->get_package_value( $package->ID, 'number_of_days' );
+			$transport_type  = $this->get_package_value( $package->ID, 'transport_type' );
+			$observation     = $this->get_package_value( $package->ID, 'observation' );
+			$permalink       = get_permalink( $package->ID );
+			$whatsapp_url    = $this->build_whatsapp_url( $destination, $this->get_package_value( $package->ID, 'departure_date' ) );
+
+			echo '<article class="wtp-package-card">';
+			echo '<a class="wtp-package-card__media" href="' . esc_url( $permalink ) . '">';
+			if ( ! empty( $main_image ) ) {
+				echo '<img src="' . esc_url( $main_image ) . '" alt="' . esc_attr( $destination ) . '" />';
+			} else {
+				echo '<img src="https://via.placeholder.com/800x500?text=' . rawurlencode( $destination ) . '" alt="' . esc_attr( $destination ) . '" />';
+			}
+			echo '</a>';
+			echo '<div class="wtp-package-card__content">';
+			echo '<h3 class="wtp-package-card__title"><a href="' . esc_url( $permalink ) . '">' . esc_html( $destination ) . '</a></h3>';
+			echo '<ul class="wtp-meta">';
+			echo '<li><strong>' . esc_html__( 'Departure:', 'wordpress-tourism-plugin' ) . '</strong> ' . esc_html( $departure_date ) . '</li>';
+			echo '<li><strong>' . esc_html__( 'Days:', 'wordpress-tourism-plugin' ) . '</strong> ' . esc_html( $number_of_days ) . '</li>';
+			echo '<li><strong>' . esc_html__( 'Transport:', 'wordpress-tourism-plugin' ) . '</strong> ' . esc_html( $transport_type ) . '</li>';
+			echo '</ul>';
+			echo '<p class="wtp-observation">' . esc_html( wp_trim_words( $observation, 20, '...' ) ) . '</p>';
+			echo '<div class="wtp-card-actions">';
+			echo '<a class="wtp-button wtp-button--primary" href="' . esc_url( $permalink ) . '">' . esc_html__( 'Ver detalle', 'wordpress-tourism-plugin' ) . '</a>';
+			echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
+			echo '</div>';
+			echo '</div>';
+			echo '</article>';
+		}
+		echo '</div>';
+
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Render single package front-end content.
+	 *
+	 * @param string $content Post content.
+	 * @return string
+	 */
+	public function render_single_package_content( $content ) {
+		if ( ! is_singular( self::POST_TYPE ) || ! in_the_loop() || ! is_main_query() ) {
+			return $content;
+		}
+
+		$post_id        = get_the_ID();
+		$destination    = $this->get_package_value( $post_id, 'destination' );
+		$transport_type = $this->get_package_value( $post_id, 'transport_type' );
+		$departure_raw  = $this->get_package_value( $post_id, 'departure_date' );
+		$departure_date = $this->format_departure_date( $departure_raw );
+		$days           = $this->get_package_value( $post_id, 'number_of_days' );
+		$accommodation  = $this->get_package_value( $post_id, 'accommodation' );
+		$transfer       = $this->get_package_value( $post_id, 'transfer' );
+		$baggage        = $this->get_package_value( $post_id, 'baggage' );
+		$excursions     = $this->get_package_value( $post_id, 'excursions' );
+		$observation    = $this->get_package_value( $post_id, 'observation' );
+		$images         = get_post_meta( $post_id, 'package_images', true );
+		$images         = is_array( $images ) ? array_filter( array_slice( $images, 0, 5 ) ) : array();
+		$whatsapp_url   = $this->build_whatsapp_url( $destination, $departure_raw );
+
+		ob_start();
+		echo '<section class="wtp-single">';
+		echo '<header class="wtp-single__header">';
+		echo '<p>' . esc_html__( 'Tourism Package', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '<h1>' . esc_html( $destination ) . '</h1>';
+		echo '</header>';
+
+		if ( ! empty( $images ) ) {
+			echo '<div class="wtp-gallery">';
+			foreach ( $images as $image_url ) {
+				echo '<img src="' . esc_url( $image_url ) . '" alt="' . esc_attr( $destination ) . '" />';
+			}
+			echo '</div>';
+		}
+
+		echo '<ul class="wtp-detail-list">';
+		echo '<li><strong>' . esc_html__( 'Destination', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $destination ) . '</li>';
+		echo '<li><strong>' . esc_html__( 'Transport', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $transport_type ) . '</li>';
+		echo '<li><strong>' . esc_html__( 'Departure', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $departure_date ) . '</li>';
+		echo '<li><strong>' . esc_html__( 'Days', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $days ) . '</li>';
+		echo '<li><strong>' . esc_html__( 'Accommodation', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $accommodation ) . '</li>';
+		echo '<li><strong>' . esc_html__( 'Transfer', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $transfer ) . '</li>';
+		echo '<li><strong>' . esc_html__( 'Baggage', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $baggage ) . '</li>';
+		echo '</ul>';
+
+		echo '<div class="wtp-panel"><h3>' . esc_html__( 'Excursions', 'wordpress-tourism-plugin' ) . '</h3><p>' . nl2br( esc_html( $excursions ) ) . '</p></div>';
+		echo '<div class="wtp-panel"><h3>' . esc_html__( 'Observation', 'wordpress-tourism-plugin' ) . '</h3><p>' . nl2br( esc_html( $observation ) ) . '</p></div>';
+		echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
+		echo '</section>';
+
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Get sanitized package meta value.
+	 *
+	 * @param int    $post_id Post ID.
+	 * @param string $key Meta key.
+	 * @return string
+	 */
+	private function get_package_value( $post_id, $key ) {
+		return (string) get_post_meta( $post_id, $key, true );
+	}
+
+	/**
+	 * Format departure date.
+	 *
+	 * @param string $date_raw Date in Y-m-d format.
+	 * @return string
+	 */
+	private function format_departure_date( $date_raw ) {
+		$timestamp = strtotime( $date_raw );
+		if ( ! $timestamp ) {
+			return $date_raw;
+		}
+
+		return gmdate( 'd/m/Y', $timestamp );
+	}
+
+	/**
+	 * Build WhatsApp URL with package context.
+	 *
+	 * @param string $destination Destination.
+	 * @param string $departure_raw Raw departure date.
+	 * @return string
+	 */
+	private function build_whatsapp_url( $destination, $departure_raw ) {
+		$message = sprintf(
+			/* translators: 1: destination name, 2: departure date. */
+			__( 'Hola! Quiero consultar por el paquete a %1$s con salida el %2$s.', 'wordpress-tourism-plugin' ),
+			$destination,
+			$this->format_departure_date( $departure_raw )
+		);
+
+		return 'https://wa.me/?text=' . rawurlencode( $message );
 	}
 
 	/**
