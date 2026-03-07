@@ -12,6 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class WTP_Tourism_Plugin {
 	const POST_TYPE = 'wtp_package';
+	const OPTION_WHATSAPP_NUMBER = 'wtp_whatsapp_number';
 
 	/**
 	 * @var string[]
@@ -41,6 +42,8 @@ class WTP_Tourism_Plugin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_frontend_assets' ) );
 		add_action( 'admin_menu', array( $this, 'register_admin_menu' ) );
+		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_action( 'admin_notices', array( $this, 'maybe_render_missing_whatsapp_notice' ) );
 		add_action( 'admin_post_wtp_import_packages', array( $this, 'handle_import' ) );
 		add_action( 'admin_post_wtp_export_packages', array( $this, 'handle_export' ) );
 		add_filter( 'the_content', array( $this, 'render_single_package_content' ) );
@@ -192,6 +195,8 @@ class WTP_Tourism_Plugin {
 
 		ob_start();
 		echo '<div class="wtp-package-grid">';
+		$whatsapp_number = $this->get_whatsapp_number();
+
 		foreach ( $packages as $package ) {
 			$images          = get_post_meta( $package->ID, 'package_images', true );
 			$images          = is_array( $images ) ? $images : array();
@@ -202,7 +207,7 @@ class WTP_Tourism_Plugin {
 			$transport_type  = $this->get_package_value( $package->ID, 'transport_type' );
 			$observation     = $this->get_package_value( $package->ID, 'observation' );
 			$permalink       = get_permalink( $package->ID );
-			$whatsapp_url    = $this->build_whatsapp_url( $destination, $this->get_package_value( $package->ID, 'departure_date' ) );
+			$whatsapp_url    = $this->build_whatsapp_url( $whatsapp_number, $destination, $this->get_package_value( $package->ID, 'departure_date' ) );
 
 			echo '<article class="wtp-package-card">';
 			echo '<a class="wtp-package-card__media" href="' . esc_url( $permalink ) . '">';
@@ -222,7 +227,9 @@ class WTP_Tourism_Plugin {
 			echo '<p class="wtp-observation">' . esc_html( wp_trim_words( $observation, 20, '...' ) ) . '</p>';
 			echo '<div class="wtp-card-actions">';
 			echo '<a class="wtp-button wtp-button--primary" href="' . esc_url( $permalink ) . '">' . esc_html__( 'Ver detalle', 'wordpress-tourism-plugin' ) . '</a>';
-			echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
+			if ( ! empty( $whatsapp_url ) ) {
+				echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
+			}
 			echo '</div>';
 			echo '</div>';
 			echo '</article>';
@@ -256,7 +263,7 @@ class WTP_Tourism_Plugin {
 		$observation    = $this->get_package_value( $post_id, 'observation' );
 		$images         = get_post_meta( $post_id, 'package_images', true );
 		$images         = is_array( $images ) ? array_filter( array_slice( $images, 0, 5 ) ) : array();
-		$whatsapp_url   = $this->build_whatsapp_url( $destination, $departure_raw );
+		$whatsapp_url   = $this->build_whatsapp_url( $this->get_whatsapp_number(), $destination, $departure_raw );
 
 		ob_start();
 		echo '<section class="wtp-single">';
@@ -285,7 +292,9 @@ class WTP_Tourism_Plugin {
 
 		echo '<div class="wtp-panel"><h3>' . esc_html__( 'Excursions', 'wordpress-tourism-plugin' ) . '</h3><p>' . nl2br( esc_html( $excursions ) ) . '</p></div>';
 		echo '<div class="wtp-panel"><h3>' . esc_html__( 'Observation', 'wordpress-tourism-plugin' ) . '</h3><p>' . nl2br( esc_html( $observation ) ) . '</p></div>';
-		echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
+		if ( ! empty( $whatsapp_url ) ) {
+			echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
+		}
 		echo '</section>';
 
 		return (string) ob_get_clean();
@@ -320,11 +329,16 @@ class WTP_Tourism_Plugin {
 	/**
 	 * Build WhatsApp URL with package context.
 	 *
+	 * @param string $number WhatsApp number in international format.
 	 * @param string $destination Destination.
 	 * @param string $departure_raw Raw departure date.
 	 * @return string
 	 */
-	private function build_whatsapp_url( $destination, $departure_raw ) {
+	private function build_whatsapp_url( $number, $destination, $departure_raw ) {
+		if ( empty( $number ) ) {
+			return '';
+		}
+
 		$message = sprintf(
 			/* translators: 1: destination name, 2: departure date. */
 			__( 'Hola! Quiero consultar por el paquete a %1$s con salida el %2$s.', 'wordpress-tourism-plugin' ),
@@ -332,7 +346,18 @@ class WTP_Tourism_Plugin {
 			$this->format_departure_date( $departure_raw )
 		);
 
-		return 'https://wa.me/?text=' . rawurlencode( $message );
+		return 'https://wa.me/' . rawurlencode( $number ) . '?text=' . rawurlencode( $message );
+	}
+
+	/**
+	 * Get configured WhatsApp number.
+	 *
+	 * @return string
+	 */
+	private function get_whatsapp_number() {
+		$number = get_option( self::OPTION_WHATSAPP_NUMBER, '' );
+
+		return $this->sanitize_whatsapp_number( $number );
 	}
 
 	/**
@@ -495,12 +520,130 @@ class WTP_Tourism_Plugin {
 	public function register_admin_menu() {
 		add_submenu_page(
 			'edit.php?post_type=' . self::POST_TYPE,
+			__( 'WhatsApp Settings', 'wordpress-tourism-plugin' ),
+			__( 'WhatsApp Settings', 'wordpress-tourism-plugin' ),
+			'manage_options',
+			'wtp-whatsapp-settings',
+			array( $this, 'render_whatsapp_settings_page' )
+		);
+
+		add_submenu_page(
+			'edit.php?post_type=' . self::POST_TYPE,
 			__( 'Import / Export Packages', 'wordpress-tourism-plugin' ),
 			__( 'Import / Export', 'wordpress-tourism-plugin' ),
 			'manage_options',
 			'wtp-import-export',
 			array( $this, 'render_import_export_page' )
 		);
+	}
+
+	/**
+	 * Register plugin settings.
+	 *
+	 * @return void
+	 */
+	public function register_settings() {
+		register_setting(
+			'wtp_settings',
+			self::OPTION_WHATSAPP_NUMBER,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_whatsapp_number' ),
+				'default'           => '',
+			)
+		);
+
+		add_settings_section(
+			'wtp_whatsapp_section',
+			__( 'WhatsApp Configuration', 'wordpress-tourism-plugin' ),
+			'__return_empty_string',
+			'wtp-whatsapp-settings'
+		);
+
+		add_settings_field(
+			'wtp_whatsapp_number',
+			__( 'Default WhatsApp Number', 'wordpress-tourism-plugin' ),
+			array( $this, 'render_whatsapp_number_field' ),
+			'wtp-whatsapp-settings',
+			'wtp_whatsapp_section'
+		);
+	}
+
+	/**
+	 * Render settings field for WhatsApp number.
+	 *
+	 * @return void
+	 */
+	public function render_whatsapp_number_field() {
+		$value = get_option( self::OPTION_WHATSAPP_NUMBER, '' );
+		echo '<input type="text" id="wtp_whatsapp_number" name="' . esc_attr( self::OPTION_WHATSAPP_NUMBER ) . '" value="' . esc_attr( $value ) . '" class="regular-text" placeholder="5491112345678" />';
+		echo '<p class="description">' . esc_html__( 'Enter the number in international format (country code + number, no spaces). Example: 5491112345678.', 'wordpress-tourism-plugin' ) . '</p>';
+	}
+
+	/**
+	 * Render WhatsApp settings page.
+	 *
+	 * @return void
+	 */
+	public function render_whatsapp_settings_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Tourism Packages: WhatsApp Settings', 'wordpress-tourism-plugin' ); ?></h1>
+			<form method="post" action="options.php">
+				<?php
+				settings_fields( 'wtp_settings' );
+				do_settings_sections( 'wtp-whatsapp-settings' );
+				submit_button( __( 'Save Settings', 'wordpress-tourism-plugin' ) );
+				?>
+			</form>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Show admin notice when WhatsApp number has not been configured.
+	 *
+	 * @return void
+	 */
+	public function maybe_render_missing_whatsapp_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$screen = get_current_screen();
+		if ( ! $screen || self::POST_TYPE !== $screen->post_type ) {
+			return;
+		}
+
+		if ( ! empty( $this->get_whatsapp_number() ) ) {
+			return;
+		}
+
+		$settings_url = admin_url( 'edit.php?post_type=' . self::POST_TYPE . '&page=wtp-whatsapp-settings' );
+		echo '<div class="notice notice-warning"><p>';
+		echo wp_kses_post(
+			sprintf(
+				/* translators: %s: settings url. */
+				__( 'The default WhatsApp number is not configured yet. Please set it in <a href="%s">WhatsApp Settings</a> so inquiry buttons work correctly.', 'wordpress-tourism-plugin' ),
+				esc_url( $settings_url )
+			)
+		);
+		echo '</p></div>';
+	}
+
+	/**
+	 * Sanitize WhatsApp number value.
+	 *
+	 * @param string $number Raw number.
+	 * @return string
+	 */
+	public function sanitize_whatsapp_number( $number ) {
+		$number = sanitize_text_field( (string) $number );
+
+		return preg_replace( '/\D+/', '', $number );
 	}
 
 	/**
