@@ -13,6 +13,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class WTP_Tourism_Plugin {
 	const POST_TYPE = 'wtp_package';
 	const OPTION_WHATSAPP_NUMBER = 'wtp_whatsapp_number';
+	const OPTION_FIELD_LABELS = 'wtp_field_labels';
+	const OPTION_FIELD_VISIBILITY = 'wtp_field_visibility';
 
 	/**
 	 * @var string[]
@@ -27,6 +29,21 @@ class WTP_Tourism_Plugin {
 		'baggage',
 		'excursions',
 		'observation',
+	);
+
+	/**
+	 * @var string[]
+	 */
+	private $default_field_labels = array(
+		'destination'    => 'Destino',
+		'transport_type' => 'Transporte',
+		'departure_date' => 'Fecha de salida',
+		'number_of_days' => 'Días',
+		'accommodation'  => 'Alojamiento',
+		'transfer'       => 'Traslado',
+		'baggage'        => 'Equipaje',
+		'excursions'     => 'Excursiones',
+		'observation'    => 'Observaciones',
 	);
 
 	/**
@@ -139,7 +156,7 @@ class WTP_Tourism_Plugin {
 	 */
 	public function enqueue_frontend_assets() {
 		$handle = 'wtp-frontend';
-		wp_register_style( $handle, false, array(), '1.1.0' );
+		wp_register_style( $handle, false, array(), '1.2.0' );
 		wp_enqueue_style( $handle );
 
 		$css = '
@@ -158,16 +175,22 @@ class WTP_Tourism_Plugin {
 		.wtp-button--primary:hover{background:#1e293b;color:#fff;}
 		.wtp-button--whatsapp{background:#25d366;color:#fff;}
 		.wtp-button--whatsapp:hover{background:#1fa855;color:#fff;}
-		.wtp-single{max-width:980px;margin:2rem auto;display:grid;gap:1.4rem;}
-		.wtp-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;}
-		.wtp-gallery img{width:100%;height:220px;object-fit:cover;border-radius:12px;box-shadow:0 10px 20px rgba(15,23,42,.08);}
-		.wtp-single__header h1{margin:.2rem 0;font-size:2rem;line-height:1.25;}
+		.wtp-single{max-width:1040px;margin:2rem auto;padding:1.25rem;background:linear-gradient(165deg,#f8fbff,#ffffff);border:1px solid #e6edf5;border-radius:18px;display:grid;gap:1.4rem;box-shadow:0 16px 30px rgba(15,23,42,.07);}
+		.wtp-single__header p{margin:0;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:#0ea5a4;font-weight:700;}
+		.wtp-single__header h1{margin:.35rem 0;font-size:2.2rem;line-height:1.2;color:#0f172a;}
+		.wtp-gallery{display:grid;gap:.85rem;}
+		.wtp-gallery__main{max-width:780px;margin:0 auto;}
+		.wtp-gallery__main img{width:100%;height:420px;object-fit:cover;border-radius:14px;box-shadow:0 14px 28px rgba(15,23,42,.12);}
+		.wtp-gallery__thumbs{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;}
+		.wtp-gallery__thumb{border:2px solid transparent;border-radius:12px;padding:0;background:#fff;cursor:pointer;overflow:hidden;box-shadow:0 7px 16px rgba(15,23,42,.1);}
+		.wtp-gallery__thumb img{width:100px;height:72px;object-fit:cover;display:block;}
+		.wtp-gallery__thumb.is-active{border-color:#0ea5a4;}
 		.wtp-detail-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.7rem 1rem;padding:0;margin:0;list-style:none;}
 		.wtp-detail-list li{padding:.7rem .85rem;background:#f8fafc;border-radius:10px;color:#334155;}
 		.wtp-detail-list strong{display:block;color:#0f172a;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem;}
 		.wtp-panel{background:#fff;border:1px solid #e8ecf1;border-radius:12px;padding:1rem;}
 		.wtp-panel h3{margin-top:0;font-size:1rem;}
-		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single__header h1{font-size:1.6rem;}}
+		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}}
 		';
 
 		wp_add_inline_style( $handle, $css );
@@ -179,6 +202,9 @@ class WTP_Tourism_Plugin {
 	 * @return string
 	 */
 	public function render_tour_packages_shortcode() {
+		$field_labels = $this->get_field_labels();
+		$field_visibility = $this->get_field_visibility();
+
 		$packages = get_posts(
 			array(
 				'post_type'      => self::POST_TYPE,
@@ -220,11 +246,19 @@ class WTP_Tourism_Plugin {
 			echo '<div class="wtp-package-card__content">';
 			echo '<h3 class="wtp-package-card__title"><a href="' . esc_url( $permalink ) . '">' . esc_html( $destination ) . '</a></h3>';
 			echo '<ul class="wtp-meta">';
-			echo '<li><strong>' . esc_html__( 'Departure:', 'wordpress-tourism-plugin' ) . '</strong> ' . esc_html( $departure_date ) . '</li>';
-			echo '<li><strong>' . esc_html__( 'Days:', 'wordpress-tourism-plugin' ) . '</strong> ' . esc_html( $number_of_days ) . '</li>';
-			echo '<li><strong>' . esc_html__( 'Transport:', 'wordpress-tourism-plugin' ) . '</strong> ' . esc_html( $transport_type ) . '</li>';
+			if ( ! empty( $field_visibility['departure_date'] ) ) {
+				echo '<li><strong>' . esc_html( $field_labels['departure_date'] ) . ':</strong> ' . esc_html( $departure_date ) . '</li>';
+			}
+			if ( ! empty( $field_visibility['number_of_days'] ) ) {
+				echo '<li><strong>' . esc_html( $field_labels['number_of_days'] ) . ':</strong> ' . esc_html( $number_of_days ) . '</li>';
+			}
+			if ( ! empty( $field_visibility['transport_type'] ) ) {
+				echo '<li><strong>' . esc_html( $field_labels['transport_type'] ) . ':</strong> ' . esc_html( $transport_type ) . '</li>';
+			}
 			echo '</ul>';
-			echo '<p class="wtp-observation">' . esc_html( wp_trim_words( $observation, 20, '...' ) ) . '</p>';
+			if ( ! empty( $field_visibility['observation'] ) ) {
+				echo '<p class="wtp-observation">' . esc_html( wp_trim_words( $observation, 20, '...' ) ) . '</p>';
+			}
 			echo '<div class="wtp-card-actions">';
 			echo '<a class="wtp-button wtp-button--primary" href="' . esc_url( $permalink ) . '">' . esc_html__( 'Ver detalle', 'wordpress-tourism-plugin' ) . '</a>';
 			if ( ! empty( $whatsapp_url ) ) {
@@ -250,48 +284,78 @@ class WTP_Tourism_Plugin {
 			return $content;
 		}
 
-		$post_id        = get_the_ID();
-		$destination    = $this->get_package_value( $post_id, 'destination' );
-		$transport_type = $this->get_package_value( $post_id, 'transport_type' );
-		$departure_raw  = $this->get_package_value( $post_id, 'departure_date' );
-		$departure_date = $this->format_departure_date( $departure_raw );
-		$days           = $this->get_package_value( $post_id, 'number_of_days' );
-		$accommodation  = $this->get_package_value( $post_id, 'accommodation' );
-		$transfer       = $this->get_package_value( $post_id, 'transfer' );
-		$baggage        = $this->get_package_value( $post_id, 'baggage' );
-		$excursions     = $this->get_package_value( $post_id, 'excursions' );
-		$observation    = $this->get_package_value( $post_id, 'observation' );
-		$images         = get_post_meta( $post_id, 'package_images', true );
-		$images         = is_array( $images ) ? array_filter( array_slice( $images, 0, 5 ) ) : array();
-		$whatsapp_url   = $this->build_whatsapp_url( $this->get_whatsapp_number(), $destination, $departure_raw );
+		$post_id          = get_the_ID();
+		$destination      = $this->get_package_value( $post_id, 'destination' );
+		$transport_type   = $this->get_package_value( $post_id, 'transport_type' );
+		$departure_raw    = $this->get_package_value( $post_id, 'departure_date' );
+		$departure_date   = $this->format_departure_date( $departure_raw );
+		$days             = $this->get_package_value( $post_id, 'number_of_days' );
+		$accommodation    = $this->get_package_value( $post_id, 'accommodation' );
+		$transfer         = $this->get_package_value( $post_id, 'transfer' );
+		$baggage          = $this->get_package_value( $post_id, 'baggage' );
+		$excursions       = $this->get_package_value( $post_id, 'excursions' );
+		$observation      = $this->get_package_value( $post_id, 'observation' );
+		$images           = get_post_meta( $post_id, 'package_images', true );
+		$images           = is_array( $images ) ? array_filter( array_slice( $images, 0, 5 ) ) : array();
+		$whatsapp_url     = $this->build_whatsapp_url( $this->get_whatsapp_number(), $destination, $departure_raw );
+		$field_labels     = $this->get_field_labels();
+		$field_visibility = $this->get_field_visibility();
+		$main_image_id    = 'wtp-main-image-' . $post_id;
 
 		ob_start();
 		echo '<section class="wtp-single">';
 		echo '<header class="wtp-single__header">';
-		echo '<p>' . esc_html__( 'Tourism Package', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '<p>' . esc_html__( 'Paquete turístico', 'wordpress-tourism-plugin' ) . '</p>';
 		echo '<h1>' . esc_html( $destination ) . '</h1>';
 		echo '</header>';
 
 		if ( ! empty( $images ) ) {
 			echo '<div class="wtp-gallery">';
-			foreach ( $images as $image_url ) {
-				echo '<img src="' . esc_url( $image_url ) . '" alt="' . esc_attr( $destination ) . '" />';
+			echo '<div class="wtp-gallery__main">';
+			echo '<img id="' . esc_attr( $main_image_id ) . '" src="' . esc_url( reset( $images ) ) . '" alt="' . esc_attr( $destination ) . '" />';
+			echo '</div>';
+
+			if ( count( $images ) > 1 ) {
+				echo '<div class="wtp-gallery__thumbs">';
+				foreach ( $images as $index => $image_url ) {
+					$active_class = 0 === $index ? ' is-active' : '';
+					echo '<button class="wtp-gallery__thumb' . esc_attr( $active_class ) . '" type="button" data-main-target="' . esc_attr( $main_image_id ) . '" data-image="' . esc_url( $image_url ) . '"><img src="' . esc_url( $image_url ) . '" alt="' . esc_attr( $destination ) . '" /></button>';
+				}
+				echo '</div>';
 			}
 			echo '</div>';
+
+			if ( count( $images ) > 1 ) {
+				echo '<script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".wtp-gallery__thumb").forEach(function(thumb){thumb.addEventListener("click",function(){var targetId=this.getAttribute("data-main-target");var imgUrl=this.getAttribute("data-image");var target=document.getElementById(targetId);if(!target||!imgUrl){return;}target.src=imgUrl;document.querySelectorAll(".wtp-gallery__thumb[data-main-target=\""+targetId+"\"]").forEach(function(item){item.classList.remove("is-active");});this.classList.add("is-active");});});});</script>';
+			}
 		}
 
+		$detail_values = array(
+			'destination'    => $destination,
+			'transport_type' => $transport_type,
+			'departure_date' => $departure_date,
+			'number_of_days' => $days,
+			'accommodation'  => $accommodation,
+			'transfer'       => $transfer,
+			'baggage'        => $baggage,
+		);
+
 		echo '<ul class="wtp-detail-list">';
-		echo '<li><strong>' . esc_html__( 'Destination', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $destination ) . '</li>';
-		echo '<li><strong>' . esc_html__( 'Transport', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $transport_type ) . '</li>';
-		echo '<li><strong>' . esc_html__( 'Departure', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $departure_date ) . '</li>';
-		echo '<li><strong>' . esc_html__( 'Days', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $days ) . '</li>';
-		echo '<li><strong>' . esc_html__( 'Accommodation', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $accommodation ) . '</li>';
-		echo '<li><strong>' . esc_html__( 'Transfer', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $transfer ) . '</li>';
-		echo '<li><strong>' . esc_html__( 'Baggage', 'wordpress-tourism-plugin' ) . '</strong>' . esc_html( $baggage ) . '</li>';
+		foreach ( $detail_values as $field => $value ) {
+			if ( empty( $field_visibility[ $field ] ) || '' === trim( (string) $value ) ) {
+				continue;
+			}
+
+			echo '<li><strong>' . esc_html( $field_labels[ $field ] ) . '</strong>' . esc_html( $value ) . '</li>';
+		}
 		echo '</ul>';
 
-		echo '<div class="wtp-panel"><h3>' . esc_html__( 'Excursions', 'wordpress-tourism-plugin' ) . '</h3><p>' . nl2br( esc_html( $excursions ) ) . '</p></div>';
-		echo '<div class="wtp-panel"><h3>' . esc_html__( 'Observation', 'wordpress-tourism-plugin' ) . '</h3><p>' . nl2br( esc_html( $observation ) ) . '</p></div>';
+		if ( ! empty( $field_visibility['excursions'] ) && '' !== trim( $excursions ) ) {
+			echo '<div class="wtp-panel"><h3>' . esc_html( $field_labels['excursions'] ) . '</h3><p>' . nl2br( esc_html( $excursions ) ) . '</p></div>';
+		}
+		if ( ! empty( $field_visibility['observation'] ) && '' !== trim( $observation ) ) {
+			echo '<div class="wtp-panel"><h3>' . esc_html( $field_labels['observation'] ) . '</h3><p>' . nl2br( esc_html( $observation ) ) . '</p></div>';
+		}
 		if ( ! empty( $whatsapp_url ) ) {
 			echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
 		}
@@ -529,6 +593,15 @@ class WTP_Tourism_Plugin {
 
 		add_submenu_page(
 			'edit.php?post_type=' . self::POST_TYPE,
+			__( 'Display Settings', 'wordpress-tourism-plugin' ),
+			__( 'Display Settings', 'wordpress-tourism-plugin' ),
+			'manage_options',
+			'wtp-display-settings',
+			array( $this, 'render_display_settings_page' )
+		);
+
+		add_submenu_page(
+			'edit.php?post_type=' . self::POST_TYPE,
 			__( 'Import / Export Packages', 'wordpress-tourism-plugin' ),
 			__( 'Import / Export', 'wordpress-tourism-plugin' ),
 			'manage_options',
@@ -551,6 +624,41 @@ class WTP_Tourism_Plugin {
 				'sanitize_callback' => array( $this, 'sanitize_whatsapp_number' ),
 				'default'           => '',
 			)
+		);
+
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_FIELD_LABELS,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_field_labels' ),
+				'default'           => $this->default_field_labels,
+			)
+		);
+
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_FIELD_VISIBILITY,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_field_visibility' ),
+				'default'           => $this->get_default_field_visibility(),
+			)
+		);
+
+		add_settings_section(
+			'wtp_display_section',
+			__( 'Field Display Options', 'wordpress-tourism-plugin' ),
+			'__return_empty_string',
+			'wtp-display-settings'
+		);
+
+		add_settings_field(
+			'wtp_field_display_options',
+			__( 'Frontend fields', 'wordpress-tourism-plugin' ),
+			array( $this, 'render_field_display_settings' ),
+			'wtp-display-settings',
+			'wtp_display_section'
 		);
 
 		add_settings_section(
@@ -601,6 +709,138 @@ class WTP_Tourism_Plugin {
 			</form>
 		</div>
 		<?php
+	}
+
+
+	/**
+	 * Render display settings page.
+	 *
+	 * @return void
+	 */
+	public function render_display_settings_page() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Tourism Packages: Display Settings', 'wordpress-tourism-plugin' ); ?></h1>
+			<form method="post" action="options.php">
+				<?php
+				settings_fields( 'wtp_display_settings' );
+				do_settings_sections( 'wtp-display-settings' );
+				submit_button( __( 'Save Settings', 'wordpress-tourism-plugin' ) );
+				?>
+			</form>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render label and visibility controls for frontend fields.
+	 *
+	 * @return void
+	 */
+	public function render_field_display_settings() {
+		$labels     = $this->get_field_labels();
+		$visibility = $this->get_field_visibility();
+
+		echo '<p class="description" style="margin-bottom:12px;">' . esc_html__( 'Customize labels and decide which package fields are displayed in the frontend.', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '<table class="widefat striped" style="max-width:780px;">';
+		echo '<thead><tr><th>' . esc_html__( 'Field', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Visible label', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Show on frontend', 'wordpress-tourism-plugin' ) . '</th></tr></thead><tbody>';
+
+		foreach ( $this->fields as $field ) {
+			echo '<tr>';
+			echo '<td><strong>' . esc_html( $this->default_field_labels[ $field ] ) . '</strong></td>';
+			echo '<td><input type="text" class="regular-text" name="' . esc_attr( self::OPTION_FIELD_LABELS ) . '[' . esc_attr( $field ) . ']" value="' . esc_attr( $labels[ $field ] ) . '" /></td>';
+			echo '<td><label><input type="checkbox" name="' . esc_attr( self::OPTION_FIELD_VISIBILITY ) . '[' . esc_attr( $field ) . ']" value="1" ' . checked( ! empty( $visibility[ $field ] ), true, false ) . ' /> ' . esc_html__( 'Visible', 'wordpress-tourism-plugin' ) . '</label></td>';
+			echo '</tr>';
+		}
+
+		echo '</tbody></table>';
+	}
+
+	/**
+	 * Get frontend field labels.
+	 *
+	 * @return string[]
+	 */
+	private function get_field_labels() {
+		$labels = get_option( self::OPTION_FIELD_LABELS, array() );
+		if ( ! is_array( $labels ) ) {
+			$labels = array();
+		}
+
+		$defaults = $this->default_field_labels;
+		foreach ( $defaults as $field => $default_label ) {
+			if ( empty( $labels[ $field ] ) ) {
+				$labels[ $field ] = $default_label;
+			}
+		}
+
+		return $labels;
+	}
+
+	/**
+	 * Get frontend field visibility settings.
+	 *
+	 * @return int[]
+	 */
+	private function get_field_visibility() {
+		$visibility = get_option( self::OPTION_FIELD_VISIBILITY, array() );
+		if ( ! is_array( $visibility ) ) {
+			$visibility = array();
+		}
+
+		return wp_parse_args( $visibility, $this->get_default_field_visibility() );
+	}
+
+	/**
+	 * Default visibility values.
+	 *
+	 * @return int[]
+	 */
+	private function get_default_field_visibility() {
+		$visibility = array();
+		foreach ( $this->fields as $field ) {
+			$visibility[ $field ] = 1;
+		}
+
+		return $visibility;
+	}
+
+	/**
+	 * Sanitize customizable labels.
+	 *
+	 * @param array $labels Raw labels.
+	 * @return string[]
+	 */
+	public function sanitize_field_labels( $labels ) {
+		$sanitized = array();
+		$labels    = is_array( $labels ) ? $labels : array();
+
+		foreach ( $this->default_field_labels as $field => $default_label ) {
+			$value = isset( $labels[ $field ] ) ? sanitize_text_field( $labels[ $field ] ) : '';
+			$sanitized[ $field ] = '' !== $value ? $value : $default_label;
+		}
+
+		return $sanitized;
+	}
+
+	/**
+	 * Sanitize visibility settings.
+	 *
+	 * @param array $visibility Raw visibility settings.
+	 * @return int[]
+	 */
+	public function sanitize_field_visibility( $visibility ) {
+		$sanitized  = array();
+		$visibility = is_array( $visibility ) ? $visibility : array();
+
+		foreach ( $this->fields as $field ) {
+			$sanitized[ $field ] = isset( $visibility[ $field ] ) ? 1 : 0;
+		}
+
+		return $sanitized;
 	}
 
 	/**
