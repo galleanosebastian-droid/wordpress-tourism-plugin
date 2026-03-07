@@ -14,6 +14,7 @@ class WTP_Tourism_Plugin {
 	const POST_TYPE = 'wtp_package';
 	const OPTION_WHATSAPP_NUMBER = 'wtp_whatsapp_number';
 	const OPTION_FIELD_LABELS = 'wtp_field_labels';
+	const OPTION_CATALOG_STYLE = 'wtp_catalog_style';
 	const META_FIELD_VISIBILITY = 'wtp_field_visibility';
 
 	/**
@@ -111,6 +112,7 @@ class WTP_Tourism_Plugin {
 	 */
 	public function register_shortcodes() {
 		add_shortcode( 'tour_packages', array( $this, 'render_tour_packages_shortcode' ) );
+		add_shortcode( 'tourism_packages', array( $this, 'render_tour_packages_shortcode' ) );
 	}
 
 	/**
@@ -161,11 +163,23 @@ class WTP_Tourism_Plugin {
 
 		$css = '
 		.wtp-package-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;margin:1.5rem 0;}
+		.wtp-package-grid.wtp-package-grid--list{grid-template-columns:1fr;}
+		.wtp-package-grid.wtp-package-grid--list .wtp-package-card{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);}
+		.wtp-package-grid.wtp-package-grid--list .wtp-package-card__media{aspect-ratio:auto;min-height:100%;}
+		.wtp-package-grid.wtp-package-grid--list .wtp-package-card__content{padding:1.15rem;}
+		.wtp-package-grid.wtp-package-grid--style-hero .wtp-package-card{border-radius:18px;border-color:#d7e8ff;box-shadow:0 16px 26px rgba(14,116,144,.13);}
+		.wtp-package-grid.wtp-package-grid--style-hero .wtp-package-card__title a{color:#0b3c5d;}
+		.wtp-package-grid.wtp-package-grid--style-blog .wtp-package-card{border-radius:8px;box-shadow:none;border-color:#dbe4ef;}
+		.wtp-package-grid.wtp-package-grid--style-blog .wtp-package-card__media img{filter:saturate(.92);}
+		.wtp-package-grid.wtp-package-grid--style-compact{gap:.9rem;}
+		.wtp-package-grid.wtp-package-grid--style-compact .wtp-package-card__content{padding:.85rem;}
+		.wtp-package-grid.wtp-package-grid--style-compact .wtp-package-card__title{font-size:1.05rem;}
 		.wtp-package-card{background:#fff;border:1px solid #e8ecf1;border-radius:14px;overflow:hidden;box-shadow:0 10px 25px rgba(15,23,42,.06);display:flex;flex-direction:column;height:100%;}
 		.wtp-package-card__media{aspect-ratio:16/10;background:#f4f7fb;overflow:hidden;}
 		.wtp-package-card__media img{width:100%;height:100%;object-fit:cover;display:block;}
 		.wtp-package-card__content{padding:1rem;display:flex;flex-direction:column;gap:.55rem;flex:1;}
 		.wtp-package-card__title{font-size:1.2rem;font-weight:700;line-height:1.3;margin:0;}
+		.wtp-package-card__title a{text-decoration:none;color:#0f172a;}
 		.wtp-meta{margin:0;padding:0;list-style:none;display:grid;gap:.35rem;color:#334155;}
 		.wtp-meta strong{color:#0f172a;}
 		.wtp-observation{margin:0;color:#475569;}
@@ -190,7 +204,7 @@ class WTP_Tourism_Plugin {
 		.wtp-detail-list strong{display:block;color:#0f172a;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem;}
 		.wtp-panel{background:#fff;border:1px solid #e8ecf1;border-radius:12px;padding:1rem;}
 		.wtp-panel h3{margin-top:0;font-size:1rem;}
-		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}}
+		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}.wtp-package-grid.wtp-package-grid--list .wtp-package-card{grid-template-columns:1fr;}}
 		';
 
 		wp_add_inline_style( $handle, $css );
@@ -201,25 +215,45 @@ class WTP_Tourism_Plugin {
 	 *
 	 * @return string
 	 */
-	public function render_tour_packages_shortcode() {
-		$field_labels = $this->get_field_labels();
-
-		$packages = get_posts(
+	public function render_tour_packages_shortcode( $atts = array() ) {
+		$atts = shortcode_atts(
 			array(
-				'post_type'      => self::POST_TYPE,
-				'post_status'    => 'publish',
-				'posts_per_page' => -1,
-				'orderby'        => 'date',
-				'order'          => 'DESC',
-			)
+				'columns'             => 3,
+				'limit'               => -1,
+				'layout'              => 'grid',
+				'style'               => '',
+				'show_image'          => 'yes',
+				'show_departure_date' => 'yes',
+				'show_days'           => 'yes',
+				'show_whatsapp'       => 'yes',
+			),
+			$atts,
+			'tourism_packages'
 		);
+
+		$field_labels = $this->get_field_labels();
+		$catalog_style = $this->sanitize_catalog_style( $atts['style'] );
+		if ( '' === $catalog_style ) {
+			$catalog_style = $this->sanitize_catalog_style( get_option( self::OPTION_CATALOG_STYLE, 'hero' ) );
+		}
+
+		$columns = max( 1, min( 4, absint( $atts['columns'] ) ) );
+		$limit   = intval( $atts['limit'] );
+		$layout  = 'list' === strtolower( (string) $atts['layout'] ) ? 'list' : 'grid';
+
+		$show_image          = $this->shortcode_flag_to_bool( $atts['show_image'] );
+		$show_departure_date = $this->shortcode_flag_to_bool( $atts['show_departure_date'] );
+		$show_days           = $this->shortcode_flag_to_bool( $atts['show_days'] );
+		$show_whatsapp       = $this->shortcode_flag_to_bool( $atts['show_whatsapp'] );
+
+		$packages = $this->get_sorted_catalog_packages( $limit );
 
 		if ( empty( $packages ) ) {
 			return '<p>' . esc_html__( 'No tourism packages available at the moment.', 'wordpress-tourism-plugin' ) . '</p>';
 		}
 
 		ob_start();
-		echo '<div class="wtp-package-grid">';
+		echo '<div class="wtp-package-grid wtp-package-grid--' . esc_attr( $layout ) . ' wtp-package-grid--style-' . esc_attr( $catalog_style ) . '" style="--wtp-columns:' . esc_attr( $columns ) . ';grid-template-columns:' . ( 'list' === $layout ? '1fr' : 'repeat(' . $columns . ',minmax(0,1fr))' ) . ';">';
 		$whatsapp_number = $this->get_whatsapp_number();
 
 		foreach ( $packages as $package ) {
@@ -236,20 +270,22 @@ class WTP_Tourism_Plugin {
 			$whatsapp_url    = $this->build_whatsapp_url( $whatsapp_number, $destination, $this->get_package_value( $package->ID, 'departure_date' ) );
 
 			echo '<article class="wtp-package-card">';
-			echo '<a class="wtp-package-card__media" href="' . esc_url( $permalink ) . '">';
-			if ( ! empty( $main_image ) ) {
-				echo '<img src="' . esc_url( $main_image ) . '" alt="' . esc_attr( $destination ) . '" />';
-			} else {
-				echo '<img src="https://via.placeholder.com/800x500?text=' . rawurlencode( $destination ) . '" alt="' . esc_attr( $destination ) . '" />';
+			if ( $show_image ) {
+				echo '<a class="wtp-package-card__media" href="' . esc_url( $permalink ) . '">';
+				if ( ! empty( $main_image ) ) {
+					echo '<img src="' . esc_url( $main_image ) . '" alt="' . esc_attr( $destination ) . '" />';
+				} else {
+					echo '<img src="https://via.placeholder.com/800x500?text=' . rawurlencode( $destination ) . '" alt="' . esc_attr( $destination ) . '" />';
+				}
+				echo '</a>';
 			}
-			echo '</a>';
 			echo '<div class="wtp-package-card__content">';
 			echo '<h3 class="wtp-package-card__title"><a href="' . esc_url( $permalink ) . '">' . esc_html( $destination ) . '</a></h3>';
 			echo '<ul class="wtp-meta">';
-			if ( ! empty( $field_visibility['departure_date'] ) && '' !== trim( $departure_date ) ) {
+			if ( $show_departure_date && ! empty( $field_visibility['departure_date'] ) && '' !== trim( $departure_date ) ) {
 				echo '<li><strong>' . esc_html( $field_labels['departure_date'] ) . ':</strong> ' . esc_html( $departure_date ) . '</li>';
 			}
-			if ( ! empty( $field_visibility['number_of_days'] ) && '' !== trim( $number_of_days ) ) {
+			if ( $show_days && ! empty( $field_visibility['number_of_days'] ) && '' !== trim( $number_of_days ) ) {
 				echo '<li><strong>' . esc_html( $field_labels['number_of_days'] ) . ':</strong> ' . esc_html( $number_of_days ) . '</li>';
 			}
 			if ( ! empty( $field_visibility['transport_type'] ) && '' !== trim( $transport_type ) ) {
@@ -260,8 +296,8 @@ class WTP_Tourism_Plugin {
 				echo '<p class="wtp-observation">' . esc_html( wp_trim_words( $observation, 20, '...' ) ) . '</p>';
 			}
 			echo '<div class="wtp-card-actions">';
-			echo '<a class="wtp-button wtp-button--primary" href="' . esc_url( $permalink ) . '">' . esc_html__( 'Ver detalle', 'wordpress-tourism-plugin' ) . '</a>';
-			if ( ! empty( $whatsapp_url ) ) {
+			echo '<a class="wtp-button wtp-button--primary" href="' . esc_url( $permalink ) . '">' . esc_html__( 'Ver paquete', 'wordpress-tourism-plugin' ) . '</a>';
+			if ( $show_whatsapp && ! empty( $whatsapp_url ) ) {
 				echo '<a class="wtp-button wtp-button--whatsapp" href="' . esc_url( $whatsapp_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Consultar por WhatsApp', 'wordpress-tourism-plugin' ) . '</a>';
 			}
 			echo '</div>';
@@ -271,6 +307,69 @@ class WTP_Tourism_Plugin {
 		echo '</div>';
 
 		return (string) ob_get_clean();
+	}
+
+	/**
+	 * Get published catalog packages sorted by nearest departure date.
+	 *
+	 * @param int $limit Number of packages to return.
+	 * @return WP_Post[]
+	 */
+	private function get_sorted_catalog_packages( $limit = -1 ) {
+		$packages = get_posts(
+			array(
+				'post_type'      => self::POST_TYPE,
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+			)
+		);
+
+		usort(
+			$packages,
+			array( $this, 'sort_packages_by_departure_date' )
+		);
+
+		if ( $limit > 0 ) {
+			$packages = array_slice( $packages, 0, $limit );
+		}
+
+		return $packages;
+	}
+
+	/**
+	 * Sort package posts by nearest departure date.
+	 *
+	 * @param WP_Post $a First package.
+	 * @param WP_Post $b Second package.
+	 * @return int
+	 */
+	private function sort_packages_by_departure_date( $a, $b ) {
+		$date_a = strtotime( $this->get_package_value( $a->ID, 'departure_date' ) );
+		$date_b = strtotime( $this->get_package_value( $b->ID, 'departure_date' ) );
+
+		if ( false === $date_a && false === $date_b ) {
+			return 0;
+		}
+
+		if ( false === $date_a ) {
+			return 1;
+		}
+
+		if ( false === $date_b ) {
+			return -1;
+		}
+
+		return $date_a <=> $date_b;
+	}
+
+	/**
+	 * Convert shortcode attribute flag into boolean.
+	 *
+	 * @param string $value Attribute value.
+	 * @return bool
+	 */
+	private function shortcode_flag_to_bool( $value ) {
+		return in_array( strtolower( trim( (string) $value ) ), array( '1', 'true', 'yes', 'on' ), true );
 	}
 
 	/**
@@ -654,6 +753,16 @@ class WTP_Tourism_Plugin {
 			)
 		);
 
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_CATALOG_STYLE,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_catalog_style' ),
+				'default'           => 'hero',
+			)
+		);
+
 		add_settings_section(
 			'wtp_display_section',
 			__( 'Field Labels', 'wordpress-tourism-plugin' ),
@@ -665,6 +774,14 @@ class WTP_Tourism_Plugin {
 			'wtp_field_display_options',
 			__( 'Field labels', 'wordpress-tourism-plugin' ),
 			array( $this, 'render_field_display_settings' ),
+			'wtp-display-settings',
+			'wtp_display_section'
+		);
+
+		add_settings_field(
+			'wtp_catalog_style',
+			__( 'Default catalog style', 'wordpress-tourism-plugin' ),
+			array( $this, 'render_catalog_style_settings' ),
 			'wtp-display-settings',
 			'wtp_display_section'
 		);
@@ -763,6 +880,54 @@ class WTP_Tourism_Plugin {
 		}
 
 		echo '</tbody></table>';
+		echo '<p class="description" style="margin-top:10px;">' . esc_html__( 'Use shortcode attributes for layout options: [tourism_packages columns="3" limit="6" layout="grid" style="hero|compact|blog" show_image="yes" show_departure_date="yes" show_days="yes" show_whatsapp="yes"].', 'wordpress-tourism-plugin' ) . '</p>';
+	}
+
+	/**
+	 * Render catalog style selector.
+	 *
+	 * @return void
+	 */
+	public function render_catalog_style_settings() {
+		$current = $this->sanitize_catalog_style( get_option( self::OPTION_CATALOG_STYLE, 'hero' ) );
+		$styles  = $this->get_catalog_style_options();
+
+		echo '<select id="wtp_catalog_style" name="' . esc_attr( self::OPTION_CATALOG_STYLE ) . '">';
+		foreach ( $styles as $value => $label ) {
+			echo '<option value="' . esc_attr( $value ) . '" ' . selected( $current, $value, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select>';
+		echo '<p class="description">' . esc_html__( 'Choose the default visual style used by [tourism_packages]. You can override it in each shortcode using style="...".', 'wordpress-tourism-plugin' ) . '</p>';
+	}
+
+	/**
+	 * Allowed catalog style options.
+	 *
+	 * @return string[]
+	 */
+	private function get_catalog_style_options() {
+		return array(
+			'hero'    => __( 'Homepage / Hero cards', 'wordpress-tourism-plugin' ),
+			'compact' => __( 'Normal page / Compact cards', 'wordpress-tourism-plugin' ),
+			'blog'    => __( 'Blog-style section', 'wordpress-tourism-plugin' ),
+		);
+	}
+
+	/**
+	 * Sanitize catalog style option.
+	 *
+	 * @param string $style Style slug.
+	 * @return string
+	 */
+	public function sanitize_catalog_style( $style ) {
+		$style = sanitize_key( (string) $style );
+		if ( '' === $style ) {
+			return '';
+		}
+
+		$allowed = array_keys( $this->get_catalog_style_options() );
+
+		return in_array( $style, $allowed, true ) ? $style : 'hero';
 	}
 
 	/**
