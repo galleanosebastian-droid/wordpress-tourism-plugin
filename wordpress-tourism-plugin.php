@@ -14,7 +14,7 @@ class WTP_Tourism_Plugin {
 	const POST_TYPE = 'wtp_package';
 	const OPTION_WHATSAPP_NUMBER = 'wtp_whatsapp_number';
 	const OPTION_FIELD_LABELS = 'wtp_field_labels';
-	const OPTION_FIELD_VISIBILITY = 'wtp_field_visibility';
+	const META_FIELD_VISIBILITY = 'wtp_field_visibility';
 
 	/**
 	 * @var string[]
@@ -203,7 +203,6 @@ class WTP_Tourism_Plugin {
 	 */
 	public function render_tour_packages_shortcode() {
 		$field_labels = $this->get_field_labels();
-		$field_visibility = $this->get_field_visibility();
 
 		$packages = get_posts(
 			array(
@@ -224,6 +223,7 @@ class WTP_Tourism_Plugin {
 		$whatsapp_number = $this->get_whatsapp_number();
 
 		foreach ( $packages as $package ) {
+			$field_visibility = $this->get_package_field_visibility( $package->ID );
 			$images          = get_post_meta( $package->ID, 'package_images', true );
 			$images          = is_array( $images ) ? $images : array();
 			$main_image      = ! empty( $images[0] ) ? $images[0] : '';
@@ -246,17 +246,17 @@ class WTP_Tourism_Plugin {
 			echo '<div class="wtp-package-card__content">';
 			echo '<h3 class="wtp-package-card__title"><a href="' . esc_url( $permalink ) . '">' . esc_html( $destination ) . '</a></h3>';
 			echo '<ul class="wtp-meta">';
-			if ( ! empty( $field_visibility['departure_date'] ) ) {
+			if ( ! empty( $field_visibility['departure_date'] ) && '' !== trim( $departure_date ) ) {
 				echo '<li><strong>' . esc_html( $field_labels['departure_date'] ) . ':</strong> ' . esc_html( $departure_date ) . '</li>';
 			}
-			if ( ! empty( $field_visibility['number_of_days'] ) ) {
+			if ( ! empty( $field_visibility['number_of_days'] ) && '' !== trim( $number_of_days ) ) {
 				echo '<li><strong>' . esc_html( $field_labels['number_of_days'] ) . ':</strong> ' . esc_html( $number_of_days ) . '</li>';
 			}
-			if ( ! empty( $field_visibility['transport_type'] ) ) {
+			if ( ! empty( $field_visibility['transport_type'] ) && '' !== trim( $transport_type ) ) {
 				echo '<li><strong>' . esc_html( $field_labels['transport_type'] ) . ':</strong> ' . esc_html( $transport_type ) . '</li>';
 			}
 			echo '</ul>';
-			if ( ! empty( $field_visibility['observation'] ) ) {
+			if ( ! empty( $field_visibility['observation'] ) && '' !== trim( $observation ) ) {
 				echo '<p class="wtp-observation">' . esc_html( wp_trim_words( $observation, 20, '...' ) ) . '</p>';
 			}
 			echo '<div class="wtp-card-actions">';
@@ -299,7 +299,7 @@ class WTP_Tourism_Plugin {
 		$images           = is_array( $images ) ? array_filter( array_slice( $images, 0, 5 ) ) : array();
 		$whatsapp_url     = $this->build_whatsapp_url( $this->get_whatsapp_number(), $destination, $departure_raw );
 		$field_labels     = $this->get_field_labels();
-		$field_visibility = $this->get_field_visibility();
+		$field_visibility = $this->get_package_field_visibility( $post_id );
 		$main_image_id    = 'wtp-main-image-' . $post_id;
 
 		ob_start();
@@ -432,6 +432,8 @@ class WTP_Tourism_Plugin {
 	 */
 	public function render_package_meta_box( $post ) {
 		wp_nonce_field( 'wtp_save_package_meta', 'wtp_package_nonce' );
+		$field_labels     = $this->get_field_labels();
+		$field_visibility = $this->get_package_field_visibility( $post->ID );
 
 		echo '<table class="form-table" role="presentation">';
 		$this->render_text_row( $post->ID, 'destination', __( 'Destination', 'wordpress-tourism-plugin' ) );
@@ -444,6 +446,17 @@ class WTP_Tourism_Plugin {
 		$this->render_textarea_row( $post->ID, 'excursions', __( 'Excursions', 'wordpress-tourism-plugin' ) );
 		$this->render_textarea_row( $post->ID, 'observation', __( 'Observation', 'wordpress-tourism-plugin' ) );
 		echo '</table>';
+
+		echo '<h4>' . esc_html__( 'Field Visibility', 'wordpress-tourism-plugin' ) . '</h4>';
+		echo '<p>' . esc_html__( 'Choose which fields are shown on the frontend for this package. Empty fields are hidden automatically.', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '<fieldset>';
+		foreach ( $this->fields as $field ) {
+			echo '<label style="display:block;margin-bottom:8px;">';
+			echo '<input type="checkbox" name="' . esc_attr( self::META_FIELD_VISIBILITY ) . '[' . esc_attr( $field ) . ']" value="1" ' . checked( ! empty( $field_visibility[ $field ] ), true, false ) . ' /> ';
+			echo esc_html( $field_labels[ $field ] );
+			echo '</label>';
+		}
+		echo '</fieldset>';
 
 		$this->render_images_section( $post->ID );
 	}
@@ -564,6 +577,11 @@ class WTP_Tourism_Plugin {
 			update_post_meta( $post_id, $field, $value );
 		}
 
+		$visibility_raw = isset( $_POST[ self::META_FIELD_VISIBILITY ] ) && is_array( $_POST[ self::META_FIELD_VISIBILITY ] )
+			? wp_unslash( $_POST[ self::META_FIELD_VISIBILITY ] )
+			: array();
+		update_post_meta( $post_id, self::META_FIELD_VISIBILITY, $this->sanitize_field_visibility( $visibility_raw ) );
+
 		$images = array();
 		if ( isset( $_POST['package_images'] ) && is_array( $_POST['package_images'] ) ) {
 			$raw_images = array_slice( wp_unslash( $_POST['package_images'] ), 0, 5 );
@@ -636,26 +654,16 @@ class WTP_Tourism_Plugin {
 			)
 		);
 
-		register_setting(
-			'wtp_display_settings',
-			self::OPTION_FIELD_VISIBILITY,
-			array(
-				'type'              => 'array',
-				'sanitize_callback' => array( $this, 'sanitize_field_visibility' ),
-				'default'           => $this->get_default_field_visibility(),
-			)
-		);
-
 		add_settings_section(
 			'wtp_display_section',
-			__( 'Field Display Options', 'wordpress-tourism-plugin' ),
+			__( 'Field Labels', 'wordpress-tourism-plugin' ),
 			'__return_empty_string',
 			'wtp-display-settings'
 		);
 
 		add_settings_field(
 			'wtp_field_display_options',
-			__( 'Frontend fields', 'wordpress-tourism-plugin' ),
+			__( 'Field labels', 'wordpress-tourism-plugin' ),
 			array( $this, 'render_field_display_settings' ),
 			'wtp-display-settings',
 			'wtp_display_section'
@@ -742,17 +750,15 @@ class WTP_Tourism_Plugin {
 	 */
 	public function render_field_display_settings() {
 		$labels     = $this->get_field_labels();
-		$visibility = $this->get_field_visibility();
 
-		echo '<p class="description" style="margin-bottom:12px;">' . esc_html__( 'Customize labels and decide which package fields are displayed in the frontend.', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '<p class="description" style="margin-bottom:12px;">' . esc_html__( 'Customize frontend labels. Field visibility is managed in each package.', 'wordpress-tourism-plugin' ) . '</p>';
 		echo '<table class="widefat striped" style="max-width:780px;">';
-		echo '<thead><tr><th>' . esc_html__( 'Field', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Visible label', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Show on frontend', 'wordpress-tourism-plugin' ) . '</th></tr></thead><tbody>';
+		echo '<thead><tr><th>' . esc_html__( 'Field', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Visible label', 'wordpress-tourism-plugin' ) . '</th></tr></thead><tbody>';
 
 		foreach ( $this->fields as $field ) {
 			echo '<tr>';
 			echo '<td><strong>' . esc_html( $this->default_field_labels[ $field ] ) . '</strong></td>';
 			echo '<td><input type="text" class="regular-text" name="' . esc_attr( self::OPTION_FIELD_LABELS ) . '[' . esc_attr( $field ) . ']" value="' . esc_attr( $labels[ $field ] ) . '" /></td>';
-			echo '<td><label><input type="checkbox" name="' . esc_attr( self::OPTION_FIELD_VISIBILITY ) . '[' . esc_attr( $field ) . ']" value="1" ' . checked( ! empty( $visibility[ $field ] ), true, false ) . ' /> ' . esc_html__( 'Visible', 'wordpress-tourism-plugin' ) . '</label></td>';
 			echo '</tr>';
 		}
 
@@ -781,12 +787,13 @@ class WTP_Tourism_Plugin {
 	}
 
 	/**
-	 * Get frontend field visibility settings.
+	 * Get per-package field visibility settings.
 	 *
+	 * @param int $post_id Post ID.
 	 * @return int[]
 	 */
-	private function get_field_visibility() {
-		$visibility = get_option( self::OPTION_FIELD_VISIBILITY, array() );
+	private function get_package_field_visibility( $post_id ) {
+		$visibility = get_post_meta( $post_id, self::META_FIELD_VISIBILITY, true );
 		if ( ! is_array( $visibility ) ) {
 			$visibility = array();
 		}
