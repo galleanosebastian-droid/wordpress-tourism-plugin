@@ -186,7 +186,7 @@ class WTP_Tourism_Plugin {
 		.wtp-package-card__content{padding:1rem;display:flex;flex-direction:column;gap:.55rem;flex:1;}
 		.wtp-package-card__title{font-size:1.2rem;font-weight:700;line-height:1.3;margin:0;}
 		.wtp-package-card__title a{text-decoration:none;color:#0f172a;}
-		.wtp-package-card__price{display:inline-block;font-size:1.2rem;font-weight:800;color:#0f172a;background:#ecfeff;border:1px solid #a5f3fc;padding:.25rem .55rem;border-radius:999px;}
+		.wtp-package-card__price{margin:0;font-size:.95rem;font-weight:600;color:#334155;}
 		.wtp-meta{margin:0;padding:0;list-style:none;display:grid;gap:.35rem;color:#334155;}
 		.wtp-meta strong{color:#0f172a;}
 		.wtp-observation{margin:0;color:#475569;}
@@ -199,7 +199,9 @@ class WTP_Tourism_Plugin {
 		.wtp-single{max-width:1040px;margin:2rem auto;padding:1.25rem;background:linear-gradient(165deg,#f8fbff,#ffffff);border:1px solid #e6edf5;border-radius:18px;display:grid;gap:1.4rem;box-shadow:0 16px 30px rgba(15,23,42,.07);}
 		.wtp-single__header p{margin:0;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:#0ea5a4;font-weight:700;}
 		.wtp-single__header h1{margin:.35rem 0;font-size:2.2rem;line-height:1.2;color:#0f172a;}
-		.wtp-single__price{margin:0;font-size:2rem;font-weight:800;line-height:1.1;color:#0f172a;}
+		.wtp-single__info{display:grid;gap:1rem;}
+		.wtp-single__price{margin:0;padding:.95rem 1.15rem;border-radius:12px;background:linear-gradient(135deg,#0f172a,#1e3a8a);color:#fff;font-size:2.1rem;font-weight:900;line-height:1.1;box-shadow:0 10px 22px rgba(15,23,42,.2);}
+		.wtp-single__price-label{display:block;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;font-weight:700;opacity:.86;margin-bottom:.25rem;}
 		.wtp-gallery{display:grid;gap:.85rem;}
 		.wtp-gallery__main{max-width:780px;margin:0 auto;}
 		.wtp-gallery__main img{width:100%;height:420px;object-fit:cover;border-radius:14px;box-shadow:0 14px 28px rgba(15,23,42,.12);}
@@ -212,7 +214,7 @@ class WTP_Tourism_Plugin {
 		.wtp-detail-list strong{display:block;color:#0f172a;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem;}
 		.wtp-panel{background:#fff;border:1px solid #e8ecf1;border-radius:12px;padding:1rem;}
 		.wtp-panel h3{margin-top:0;font-size:1rem;}
-		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}.wtp-package-grid.wtp-package-grid--list .wtp-package-card{grid-template-columns:1fr;}}
+		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-single__price{font-size:1.7rem;padding:.85rem 1rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}.wtp-package-grid.wtp-package-grid--list .wtp-package-card{grid-template-columns:1fr;}}
 		';
 
 		wp_add_inline_style( $handle, $css );
@@ -429,9 +431,6 @@ class WTP_Tourism_Plugin {
 		echo '<header class="wtp-single__header">';
 		echo '<p>' . esc_html__( 'Paquete turístico', 'wordpress-tourism-plugin' ) . '</p>';
 		echo '<h1>' . esc_html( $destination ) . '</h1>';
-		if ( ! empty( $field_visibility['price'] ) && '' !== trim( $price ) ) {
-			echo '<p class="wtp-single__price">' . esc_html( $price ) . '</p>';
-		}
 		echo '</header>';
 
 		if ( ! empty( $images ) ) {
@@ -465,6 +464,10 @@ class WTP_Tourism_Plugin {
 			'baggage'        => $baggage,
 		);
 
+		echo '<section class="wtp-single__info">';
+		if ( ! empty( $field_visibility['price'] ) && '' !== trim( $price ) ) {
+			echo '<p class="wtp-single__price"><span class="wtp-single__price-label">' . esc_html( $field_labels['price'] ) . '</span>' . esc_html( $price ) . '</p>';
+		}
 		echo '<ul class="wtp-detail-list">';
 		foreach ( $detail_values as $field => $value ) {
 			if ( empty( $field_visibility[ $field ] ) || '' === trim( (string) $value ) ) {
@@ -474,6 +477,7 @@ class WTP_Tourism_Plugin {
 			echo '<li><strong>' . esc_html( $field_labels[ $field ] ) . '</strong>' . esc_html( $value ) . '</li>';
 		}
 		echo '</ul>';
+		echo '</section>';
 
 		if ( ! empty( $field_visibility['excursions'] ) && '' !== trim( $excursions ) ) {
 			echo '<div class="wtp-panel"><h3>' . esc_html( $field_labels['excursions'] ) . '</h3><p>' . nl2br( esc_html( $excursions ) ) . '</p></div>';
@@ -516,37 +520,23 @@ class WTP_Tourism_Plugin {
 	}
 
 	/**
-	 * Normalize stored package price to a numeric string.
+	 * Normalize stored package price as plain text.
 	 *
 	 * @param mixed $value Raw value.
 	 * @return string
 	 */
 	private function normalize_price_value( $value ) {
-		$normalized = preg_replace( '/[^0-9.]/', '', (string) $value );
-		if ( '' === $normalized ) {
-			return '';
-		}
-
-		return (string) (float) $normalized;
+		return sanitize_text_field( (string) $value );
 	}
 
 	/**
 	 * Format package price for frontend output.
 	 *
-	 * @param string $value Raw stored numeric value.
+	 * @param string $value Raw stored value.
 	 * @return string
 	 */
 	private function format_package_price( $value ) {
-		$numeric = $this->normalize_price_value( $value );
-		if ( '' === $numeric ) {
-			return '';
-		}
-
-		$amount = (float) $numeric;
-		$decimals = ( floor( $amount ) === $amount ) ? 0 : 2;
-
-		/* translators: %s: formatted numeric package price. */
-		return sprintf( __( 'USD %s', 'wordpress-tourism-plugin' ), number_format_i18n( $amount, $decimals ) );
+		return $this->normalize_price_value( $value );
 	}
 
 	/**
@@ -646,11 +636,11 @@ class WTP_Tourism_Plugin {
 	}
 
 	private function render_price_row( $post_id, $field, $label ) {
-		$value = $this->normalize_price_value( get_post_meta( $post_id, $field, true ) );
+		$value = get_post_meta( $post_id, $field, true );
 		echo '<tr>';
 		echo '<th scope="row"><label for="' . esc_attr( $field ) . '">' . esc_html( $label ) . '</label></th>';
-		echo '<td><input type="number" min="0" step="0.01" id="' . esc_attr( $field ) . '" name="' . esc_attr( $field ) . '" value="' . esc_attr( $value ) . '" />';
-		echo '<p class="description">' . esc_html__( 'Store only the numeric amount. Currency symbol is added automatically on display.', 'wordpress-tourism-plugin' ) . '</p></td>';
+		echo '<td><input class="regular-text" type="text" id="' . esc_attr( $field ) . '" name="' . esc_attr( $field ) . '" value="' . esc_attr( $value ) . '" placeholder="USD 850" />';
+		echo '<p class="description">' . esc_html__( 'You can include currency and formatting (e.g. USD 850, ARS 1.200.000, U$S 950, 850 USD).', 'wordpress-tourism-plugin' ) . '</p></td>';
 		echo '</tr>';
 	}
 
