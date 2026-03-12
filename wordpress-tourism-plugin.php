@@ -186,7 +186,11 @@ class WTP_Tourism_Plugin {
 		.wtp-package-card__content{padding:1rem;display:flex;flex-direction:column;gap:.55rem;flex:1;}
 		.wtp-package-card__title{font-size:1.2rem;font-weight:700;line-height:1.3;margin:0;}
 		.wtp-package-card__title a{text-decoration:none;color:#0f172a;}
-		.wtp-package-card__price{margin:0;font-size:.95rem;font-weight:600;color:#334155;}
+		.wtp-package-card__price{margin:.15rem 0 .2rem;padding:.5rem .7rem;border-radius:10px;background:linear-gradient(135deg,#0f172a,#1e3a8a);color:#fff;font-size:1.25rem;font-weight:800;line-height:1.1;box-shadow:0 8px 16px rgba(15,23,42,.18);display:inline-flex;flex-direction:column;align-items:flex-start;max-width:100%;}
+		.wtp-package-card__price-label{display:block;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;opacity:.84;margin-bottom:.12rem;line-height:1.1;}
+		.wtp-package-grid.wtp-package-grid--style-compact .wtp-package-card__price{padding:.45rem .6rem;font-size:1.08rem;border-radius:9px;}
+		.wtp-package-grid.wtp-package-grid--style-compact .wtp-package-card__price-label{font-size:.56rem;}
+		.wtp-package-grid.wtp-package-grid--list .wtp-package-card__price{font-size:1.15rem;}
 		.wtp-meta{margin:0;padding:0;list-style:none;display:grid;gap:.35rem;color:#334155;}
 		.wtp-meta strong{color:#0f172a;}
 		.wtp-observation{margin:0;color:#475569;}
@@ -214,7 +218,7 @@ class WTP_Tourism_Plugin {
 		.wtp-detail-list strong{display:block;color:#0f172a;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem;}
 		.wtp-panel{background:#fff;border:1px solid #e8ecf1;border-radius:12px;padding:1rem;}
 		.wtp-panel h3{margin-top:0;font-size:1rem;}
-		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-single__price{font-size:1.7rem;padding:.85rem 1rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}.wtp-package-grid.wtp-package-grid--list .wtp-package-card{grid-template-columns:1fr;}}
+		@media (max-width:640px){.wtp-button{width:100%;}.wtp-single{padding:1rem;}.wtp-single__header h1{font-size:1.7rem;}.wtp-single__price{font-size:1.7rem;padding:.85rem 1rem;}.wtp-gallery__main img{height:270px;}.wtp-gallery__thumb img{width:74px;height:58px;}.wtp-package-grid.wtp-package-grid--list .wtp-package-card{grid-template-columns:1fr;}.wtp-package-card__price{font-size:1.15rem;padding:.45rem .62rem;}}
 		';
 
 		wp_add_inline_style( $handle, $css );
@@ -303,7 +307,7 @@ class WTP_Tourism_Plugin {
 			echo '<div class="wtp-package-card__content">';
 			echo '<h3 class="wtp-package-card__title"><a href="' . esc_url( $permalink ) . '">' . esc_html( $destination ) . '</a></h3>';
 			if ( ! empty( $field_visibility['price'] ) && '' !== trim( $price ) ) {
-				echo '<p class="wtp-package-card__price">' . esc_html( $price ) . '</p>';
+				echo '<p class="wtp-package-card__price"><span class="wtp-package-card__price-label">' . esc_html( $field_labels['price'] ) . '</span>' . esc_html( $price ) . '</p>';
 			}
 			echo '<ul class="wtp-meta">';
 			if ( $show_departure_date && ! empty( $field_visibility['departure_date'] ) && '' !== trim( $departure_date ) ) {
