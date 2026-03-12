@@ -26,6 +26,7 @@ class WTP_Tourism_Plugin {
 	 */
 	private $fields = array(
 		'destination',
+		'price',
 		'transport_type',
 		'departure_date',
 		'number_of_days',
@@ -41,6 +42,7 @@ class WTP_Tourism_Plugin {
 	 */
 	private $default_field_labels = array(
 		'destination'    => 'Destino',
+		'price'          => 'Precio',
 		'transport_type' => 'Transporte',
 		'departure_date' => 'Fecha de salida',
 		'number_of_days' => 'Días',
@@ -184,6 +186,7 @@ class WTP_Tourism_Plugin {
 		.wtp-package-card__content{padding:1rem;display:flex;flex-direction:column;gap:.55rem;flex:1;}
 		.wtp-package-card__title{font-size:1.2rem;font-weight:700;line-height:1.3;margin:0;}
 		.wtp-package-card__title a{text-decoration:none;color:#0f172a;}
+		.wtp-package-card__price{display:inline-block;font-size:1.2rem;font-weight:800;color:#0f172a;background:#ecfeff;border:1px solid #a5f3fc;padding:.25rem .55rem;border-radius:999px;}
 		.wtp-meta{margin:0;padding:0;list-style:none;display:grid;gap:.35rem;color:#334155;}
 		.wtp-meta strong{color:#0f172a;}
 		.wtp-observation{margin:0;color:#475569;}
@@ -196,6 +199,7 @@ class WTP_Tourism_Plugin {
 		.wtp-single{max-width:1040px;margin:2rem auto;padding:1.25rem;background:linear-gradient(165deg,#f8fbff,#ffffff);border:1px solid #e6edf5;border-radius:18px;display:grid;gap:1.4rem;box-shadow:0 16px 30px rgba(15,23,42,.07);}
 		.wtp-single__header p{margin:0;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:#0ea5a4;font-weight:700;}
 		.wtp-single__header h1{margin:.35rem 0;font-size:2.2rem;line-height:1.2;color:#0f172a;}
+		.wtp-single__price{margin:0;font-size:2rem;font-weight:800;line-height:1.1;color:#0f172a;}
 		.wtp-gallery{display:grid;gap:.85rem;}
 		.wtp-gallery__main{max-width:780px;margin:0 auto;}
 		.wtp-gallery__main img{width:100%;height:420px;object-fit:cover;border-radius:14px;box-shadow:0 14px 28px rgba(15,23,42,.12);}
@@ -279,6 +283,7 @@ class WTP_Tourism_Plugin {
 			$departure_date  = $this->format_departure_date( $this->get_package_value( $package->ID, 'departure_date' ) );
 			$number_of_days  = $this->get_package_value( $package->ID, 'number_of_days' );
 			$transport_type  = $this->get_package_value( $package->ID, 'transport_type' );
+			$price           = $this->format_package_price( $this->get_package_value( $package->ID, 'price' ) );
 			$observation     = $this->get_package_value( $package->ID, 'observation' );
 			$permalink       = get_permalink( $package->ID );
 			$whatsapp_url    = $this->build_whatsapp_url( $whatsapp_number, $destination, $this->get_package_value( $package->ID, 'departure_date' ) );
@@ -295,6 +300,9 @@ class WTP_Tourism_Plugin {
 			}
 			echo '<div class="wtp-package-card__content">';
 			echo '<h3 class="wtp-package-card__title"><a href="' . esc_url( $permalink ) . '">' . esc_html( $destination ) . '</a></h3>';
+			if ( ! empty( $field_visibility['price'] ) && '' !== trim( $price ) ) {
+				echo '<p class="wtp-package-card__price">' . esc_html( $price ) . '</p>';
+			}
 			echo '<ul class="wtp-meta">';
 			if ( $show_departure_date && ! empty( $field_visibility['departure_date'] ) && '' !== trim( $departure_date ) ) {
 				echo '<li><strong>' . esc_html( $field_labels['departure_date'] ) . ':</strong> ' . esc_html( $departure_date ) . '</li>';
@@ -400,6 +408,7 @@ class WTP_Tourism_Plugin {
 		$post_id          = get_the_ID();
 		$destination      = $this->get_package_value( $post_id, 'destination' );
 		$transport_type   = $this->get_package_value( $post_id, 'transport_type' );
+		$price            = $this->format_package_price( $this->get_package_value( $post_id, 'price' ) );
 		$departure_raw    = $this->get_package_value( $post_id, 'departure_date' );
 		$departure_date   = $this->format_departure_date( $departure_raw );
 		$days             = $this->get_package_value( $post_id, 'number_of_days' );
@@ -420,6 +429,9 @@ class WTP_Tourism_Plugin {
 		echo '<header class="wtp-single__header">';
 		echo '<p>' . esc_html__( 'Paquete turístico', 'wordpress-tourism-plugin' ) . '</p>';
 		echo '<h1>' . esc_html( $destination ) . '</h1>';
+		if ( ! empty( $field_visibility['price'] ) && '' !== trim( $price ) ) {
+			echo '<p class="wtp-single__price">' . esc_html( $price ) . '</p>';
+		}
 		echo '</header>';
 
 		if ( ! empty( $images ) ) {
@@ -504,6 +516,40 @@ class WTP_Tourism_Plugin {
 	}
 
 	/**
+	 * Normalize stored package price to a numeric string.
+	 *
+	 * @param mixed $value Raw value.
+	 * @return string
+	 */
+	private function normalize_price_value( $value ) {
+		$normalized = preg_replace( '/[^0-9.]/', '', (string) $value );
+		if ( '' === $normalized ) {
+			return '';
+		}
+
+		return (string) (float) $normalized;
+	}
+
+	/**
+	 * Format package price for frontend output.
+	 *
+	 * @param string $value Raw stored numeric value.
+	 * @return string
+	 */
+	private function format_package_price( $value ) {
+		$numeric = $this->normalize_price_value( $value );
+		if ( '' === $numeric ) {
+			return '';
+		}
+
+		$amount = (float) $numeric;
+		$decimals = ( floor( $amount ) === $amount ) ? 0 : 2;
+
+		/* translators: %s: formatted numeric package price. */
+		return sprintf( __( 'USD %s', 'wordpress-tourism-plugin' ), number_format_i18n( $amount, $decimals ) );
+	}
+
+	/**
 	 * Build WhatsApp URL with package context.
 	 *
 	 * @param string $number WhatsApp number in international format.
@@ -550,6 +596,7 @@ class WTP_Tourism_Plugin {
 
 		echo '<table class="form-table" role="presentation">';
 		$this->render_text_row( $post->ID, 'destination', __( 'Destination', 'wordpress-tourism-plugin' ) );
+		$this->render_price_row( $post->ID, 'price', __( 'Price', 'wordpress-tourism-plugin' ) );
 		$this->render_text_row( $post->ID, 'transport_type', __( 'Transport Type', 'wordpress-tourism-plugin' ) );
 		$this->render_date_row( $post->ID, 'departure_date', __( 'Departure Date', 'wordpress-tourism-plugin' ) );
 		$this->render_number_row( $post->ID, 'number_of_days', __( 'Number of Days', 'wordpress-tourism-plugin' ) );
@@ -595,6 +642,15 @@ class WTP_Tourism_Plugin {
 		echo '<tr>';
 		echo '<th scope="row"><label for="' . esc_attr( $field ) . '">' . esc_html( $label ) . '</label></th>';
 		echo '<td><input type="number" min="1" step="1" id="' . esc_attr( $field ) . '" name="' . esc_attr( $field ) . '" value="' . esc_attr( $value ) . '" /></td>';
+		echo '</tr>';
+	}
+
+	private function render_price_row( $post_id, $field, $label ) {
+		$value = $this->normalize_price_value( get_post_meta( $post_id, $field, true ) );
+		echo '<tr>';
+		echo '<th scope="row"><label for="' . esc_attr( $field ) . '">' . esc_html( $label ) . '</label></th>';
+		echo '<td><input type="number" min="0" step="0.01" id="' . esc_attr( $field ) . '" name="' . esc_attr( $field ) . '" value="' . esc_attr( $value ) . '" />';
+		echo '<p class="description">' . esc_html__( 'Store only the numeric amount. Currency symbol is added automatically on display.', 'wordpress-tourism-plugin' ) . '</p></td>';
 		echo '</tr>';
 	}
 
@@ -681,6 +737,8 @@ class WTP_Tourism_Plugin {
 			$value = wp_unslash( $_POST[ $field ] );
 			if ( 'number_of_days' === $field ) {
 				$value = absint( $value );
+			} elseif ( 'price' === $field ) {
+				$value = $this->normalize_price_value( $value );
 			} elseif ( in_array( $field, array( 'excursions', 'observation' ), true ) ) {
 				$value = sanitize_textarea_field( $value );
 			} else {
@@ -1290,7 +1348,7 @@ class WTP_Tourism_Plugin {
 			<hr />
 
 			<h2><?php esc_html_e( 'Import Packages', 'wordpress-tourism-plugin' ); ?></h2>
-			<p><?php esc_html_e( 'CSV headers must include: destination, transport_type, departure_date, number_of_days, accommodation, transfer, baggage, excursions, observation, image_1, image_2, image_3, image_4, image_5.', 'wordpress-tourism-plugin' ); ?></p>
+			<p><?php esc_html_e( 'CSV headers must include: destination, price, transport_type, departure_date, number_of_days, accommodation, transfer, baggage, excursions, observation, image_1, image_2, image_3, image_4, image_5.', 'wordpress-tourism-plugin' ); ?></p>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 				<?php wp_nonce_field( 'wtp_import_packages', 'wtp_import_nonce' ); ?>
 				<input type="hidden" name="action" value="wtp_import_packages" />
@@ -1420,6 +1478,8 @@ class WTP_Tourism_Plugin {
 				$value = isset( $row[ $header_map[ $field ] ] ) ? $row[ $header_map[ $field ] ] : '';
 				if ( 'number_of_days' === $field ) {
 					$value = absint( $value );
+				} elseif ( 'price' === $field ) {
+					$value = $this->normalize_price_value( $value );
 				} elseif ( in_array( $field, array( 'excursions', 'observation' ), true ) ) {
 					$value = sanitize_textarea_field( $value );
 				} else {
