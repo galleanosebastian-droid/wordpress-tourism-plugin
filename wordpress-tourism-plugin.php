@@ -15,6 +15,10 @@ class WTP_Tourism_Plugin {
 	const OPTION_WHATSAPP_NUMBER = 'wtp_whatsapp_number';
 	const OPTION_FIELD_LABELS = 'wtp_field_labels';
 	const OPTION_CATALOG_STYLE = 'wtp_catalog_style';
+	const OPTION_CATALOG_LIMIT = 'wtp_catalog_limit';
+	const OPTION_CATALOG_COLUMNS = 'wtp_catalog_columns';
+	const OPTION_CATALOG_LAYOUT = 'wtp_catalog_layout';
+	const OPTION_CATALOG_SHOW_WHATSAPP = 'wtp_catalog_show_whatsapp';
 	const META_FIELD_VISIBILITY = 'wtp_field_visibility';
 
 	/**
@@ -216,16 +220,24 @@ class WTP_Tourism_Plugin {
 	 * @return string
 	 */
 	public function render_tour_packages_shortcode( $atts = array() ) {
+		$raw_atts = is_array( $atts ) ? $atts : array();
+
+		$default_limit         = $this->sanitize_catalog_limit( get_option( self::OPTION_CATALOG_LIMIT, 6 ) );
+		$default_columns       = $this->sanitize_catalog_columns( get_option( self::OPTION_CATALOG_COLUMNS, 3 ) );
+		$default_layout        = $this->sanitize_catalog_layout( get_option( self::OPTION_CATALOG_LAYOUT, 'grid' ) );
+		$default_show_whatsapp = $this->sanitize_catalog_toggle( get_option( self::OPTION_CATALOG_SHOW_WHATSAPP, 'yes' ) );
+
 		$atts = shortcode_atts(
 			array(
-				'columns'             => 3,
-				'limit'               => -1,
-				'layout'              => 'grid',
+				'columns'             => $default_columns,
+				'limit'               => $default_limit,
+				'layout'              => $default_layout,
 				'style'               => '',
 				'show_image'          => 'yes',
+				'show_date'           => 'yes',
 				'show_departure_date' => 'yes',
 				'show_days'           => 'yes',
-				'show_whatsapp'       => 'yes',
+				'show_whatsapp'       => $default_show_whatsapp,
 			),
 			$atts,
 			'tourism_packages'
@@ -237,12 +249,14 @@ class WTP_Tourism_Plugin {
 			$catalog_style = $this->sanitize_catalog_style( get_option( self::OPTION_CATALOG_STYLE, 'hero' ) );
 		}
 
-		$columns = max( 1, min( 4, absint( $atts['columns'] ) ) );
-		$limit   = intval( $atts['limit'] );
-		$layout  = 'list' === strtolower( (string) $atts['layout'] ) ? 'list' : 'grid';
+		$columns = $this->sanitize_catalog_columns( $atts['columns'] );
+		$limit   = $this->sanitize_catalog_limit( $atts['limit'] );
+		$layout  = $this->sanitize_catalog_layout( $atts['layout'] );
 
 		$show_image          = $this->shortcode_flag_to_bool( $atts['show_image'] );
-		$show_departure_date = $this->shortcode_flag_to_bool( $atts['show_departure_date'] );
+		$show_departure_date = array_key_exists( 'show_date', $raw_atts )
+			? $this->shortcode_flag_to_bool( $atts['show_date'] )
+			: $this->shortcode_flag_to_bool( $atts['show_departure_date'] );
 		$show_days           = $this->shortcode_flag_to_bool( $atts['show_days'] );
 		$show_whatsapp       = $this->shortcode_flag_to_bool( $atts['show_whatsapp'] );
 
@@ -763,6 +777,46 @@ class WTP_Tourism_Plugin {
 			)
 		);
 
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_CATALOG_LIMIT,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( $this, 'sanitize_catalog_limit' ),
+				'default'           => 6,
+			)
+		);
+
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_CATALOG_COLUMNS,
+			array(
+				'type'              => 'integer',
+				'sanitize_callback' => array( $this, 'sanitize_catalog_columns' ),
+				'default'           => 3,
+			)
+		);
+
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_CATALOG_LAYOUT,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_catalog_layout' ),
+				'default'           => 'grid',
+			)
+		);
+
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_CATALOG_SHOW_WHATSAPP,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_catalog_toggle' ),
+				'default'           => 'yes',
+			)
+		);
+
 		add_settings_section(
 			'wtp_display_section',
 			__( 'Field Labels', 'wordpress-tourism-plugin' ),
@@ -784,6 +838,29 @@ class WTP_Tourism_Plugin {
 			array( $this, 'render_catalog_style_settings' ),
 			'wtp-display-settings',
 			'wtp_display_section'
+		);
+
+		add_settings_field(
+			'wtp_catalog_defaults',
+			__( 'Catalog defaults', 'wordpress-tourism-plugin' ),
+			array( $this, 'render_catalog_defaults_settings' ),
+			'wtp-display-settings',
+			'wtp_display_section'
+		);
+
+		add_settings_section(
+			'wtp_shortcode_help_section',
+			__( 'Shortcode Help', 'wordpress-tourism-plugin' ),
+			'__return_empty_string',
+			'wtp-display-settings'
+		);
+
+		add_settings_field(
+			'wtp_shortcode_help',
+			__( 'Catalog shortcode reference', 'wordpress-tourism-plugin' ),
+			array( $this, 'render_shortcode_help_box' ),
+			'wtp-display-settings',
+			'wtp_shortcode_help_section'
 		);
 
 		add_settings_section(
@@ -880,7 +957,7 @@ class WTP_Tourism_Plugin {
 		}
 
 		echo '</tbody></table>';
-		echo '<p class="description" style="margin-top:10px;">' . esc_html__( 'Use shortcode attributes for layout options: [tourism_packages columns="3" limit="6" layout="grid" style="hero|compact|blog" show_image="yes" show_departure_date="yes" show_days="yes" show_whatsapp="yes"].', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '<p class="description" style="margin-top:10px;">' . esc_html__( 'Use shortcode attributes to override the defaults configured below.', 'wordpress-tourism-plugin' ) . '</p>';
 	}
 
 	/**
@@ -901,6 +978,73 @@ class WTP_Tourism_Plugin {
 	}
 
 	/**
+	 * Render defaults for catalog shortcode behavior.
+	 *
+	 * @return void
+	 */
+	public function render_catalog_defaults_settings() {
+		$limit         = $this->sanitize_catalog_limit( get_option( self::OPTION_CATALOG_LIMIT, 6 ) );
+		$columns       = $this->sanitize_catalog_columns( get_option( self::OPTION_CATALOG_COLUMNS, 3 ) );
+		$layout        = $this->sanitize_catalog_layout( get_option( self::OPTION_CATALOG_LAYOUT, 'grid' ) );
+		$show_whatsapp = $this->sanitize_catalog_toggle( get_option( self::OPTION_CATALOG_SHOW_WHATSAPP, 'yes' ) );
+
+		echo '<fieldset>';
+		echo '<label for="wtp_catalog_limit"><strong>' . esc_html__( 'Default number of packages', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
+		echo '<input type="number" min="-1" step="1" id="wtp_catalog_limit" name="' . esc_attr( self::OPTION_CATALOG_LIMIT ) . '" value="' . esc_attr( $limit ) . '" class="small-text" />';
+		echo '<p class="description" style="margin:6px 0 12px;">' . esc_html__( 'Use -1 to show all packages.', 'wordpress-tourism-plugin' ) . '</p>';
+
+		echo '<label for="wtp_catalog_columns"><strong>' . esc_html__( 'Default columns per row', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
+		echo '<input type="number" min="1" max="4" step="1" id="wtp_catalog_columns" name="' . esc_attr( self::OPTION_CATALOG_COLUMNS ) . '" value="' . esc_attr( $columns ) . '" class="small-text" />';
+		echo '<p class="description" style="margin:6px 0 12px;">' . esc_html__( 'Applies to grid layout and can be overridden with columns="..." in the shortcode.', 'wordpress-tourism-plugin' ) . '</p>';
+
+		echo '<label for="wtp_catalog_layout"><strong>' . esc_html__( 'Default layout style', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
+		echo '<select id="wtp_catalog_layout" name="' . esc_attr( self::OPTION_CATALOG_LAYOUT ) . '">';
+		echo '<option value="grid" ' . selected( $layout, 'grid', false ) . '>' . esc_html__( 'Grid', 'wordpress-tourism-plugin' ) . '</option>';
+		echo '<option value="list" ' . selected( $layout, 'list', false ) . '>' . esc_html__( 'List', 'wordpress-tourism-plugin' ) . '</option>';
+		echo '</select>';
+		echo '<p class="description" style="margin:6px 0 12px;">' . esc_html__( 'Controls whether package cards are shown in a grid or in a vertical list.', 'wordpress-tourism-plugin' ) . '</p>';
+
+		echo '<label for="wtp_catalog_show_whatsapp"><strong>' . esc_html__( 'Show WhatsApp button by default', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
+		echo '<select id="wtp_catalog_show_whatsapp" name="' . esc_attr( self::OPTION_CATALOG_SHOW_WHATSAPP ) . '">';
+		echo '<option value="yes" ' . selected( $show_whatsapp, 'yes', false ) . '>' . esc_html__( 'Yes', 'wordpress-tourism-plugin' ) . '</option>';
+		echo '<option value="no" ' . selected( $show_whatsapp, 'no', false ) . '>' . esc_html__( 'No', 'wordpress-tourism-plugin' ) . '</option>';
+		echo '</select>';
+		echo '<p class="description" style="margin:6px 0 0;">' . esc_html__( 'The shortcode can still override this with show_whatsapp="yes|no".', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '</fieldset>';
+	}
+
+	/**
+	 * Render shortcode documentation box in admin.
+	 *
+	 * @return void
+	 */
+	public function render_shortcode_help_box() {
+		echo '<div style="background:#fff;border:1px solid #dcdcde;padding:14px;max-width:860px;">';
+		echo '<p><strong>' . esc_html__( 'Available shortcode:', 'wordpress-tourism-plugin' ) . '</strong> <code>[tourism_packages]</code> <span style="opacity:.7;">(' . esc_html__( 'alias:', 'wordpress-tourism-plugin' ) . ' <code>[tour_packages]</code>)</span></p>';
+		echo '<p><strong>' . esc_html__( 'Example usage:', 'wordpress-tourism-plugin' ) . '</strong></p>';
+		echo '<ul style="list-style:disc;padding-left:20px;">';
+		echo '<li><code>[tourism_packages]</code></li>';
+		echo '<li><code>[tourism_packages limit="6" columns="3" layout="grid"]</code></li>';
+		echo '<li><code>[tourism_packages layout="list" show_image="no" show_date="yes" show_days="yes" show_whatsapp="no"]</code></li>';
+		echo '<li><code>[tourism_packages style="compact" limit="4"]</code></li>';
+		echo '</ul>';
+
+		echo '<table class="widefat striped" style="max-width:100%;margin-top:10px;">';
+		echo '<thead><tr><th>' . esc_html__( 'Attribute', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Accepted values', 'wordpress-tourism-plugin' ) . '</th><th>' . esc_html__( 'Description', 'wordpress-tourism-plugin' ) . '</th></tr></thead><tbody>';
+		echo '<tr><td><code>limit</code></td><td><code>-1</code> or positive number</td><td>' . esc_html__( 'How many packages to show. -1 displays all packages.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>columns</code></td><td>1-4</td><td>' . esc_html__( 'Number of package cards per row when layout is grid.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>layout</code></td><td><code>grid</code>, <code>list</code></td><td>' . esc_html__( 'Card arrangement style for the catalog.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>style</code></td><td><code>hero</code>, <code>compact</code>, <code>blog</code></td><td>' . esc_html__( 'Visual card style theme.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>show_image</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide package images.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>show_date</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide departure date in each card.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>show_days</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide number of days in each card.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>show_whatsapp</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide the WhatsApp inquiry button.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '</tbody></table>';
+		echo '<p class="description" style="margin-top:10px;">' . esc_html__( 'Shortcode attributes always override global defaults configured in this page.', 'wordpress-tourism-plugin' ) . '</p>';
+		echo '</div>';
+	}
+
+	/**
 	 * Allowed catalog style options.
 	 *
 	 * @return string[]
@@ -911,6 +1055,60 @@ class WTP_Tourism_Plugin {
 			'compact' => __( 'Normal page / Compact cards', 'wordpress-tourism-plugin' ),
 			'blog'    => __( 'Blog-style section', 'wordpress-tourism-plugin' ),
 		);
+	}
+
+	/**
+	 * Sanitize default package limit.
+	 *
+	 * @param mixed $limit Limit value.
+	 * @return int
+	 */
+	public function sanitize_catalog_limit( $limit ) {
+		$limit = intval( $limit );
+
+		if ( $limit < -1 ) {
+			return -1;
+		}
+
+		return 0 === $limit ? 6 : $limit;
+	}
+
+	/**
+	 * Sanitize default columns for catalog cards.
+	 *
+	 * @param mixed $columns Column count.
+	 * @return int
+	 */
+	public function sanitize_catalog_columns( $columns ) {
+		$columns = absint( $columns );
+
+		if ( $columns < 1 ) {
+			$columns = 3;
+		}
+
+		return min( 4, $columns );
+	}
+
+	/**
+	 * Sanitize layout value.
+	 *
+	 * @param mixed $layout Layout type.
+	 * @return string
+	 */
+	public function sanitize_catalog_layout( $layout ) {
+		$layout = sanitize_key( (string) $layout );
+
+		return in_array( $layout, array( 'grid', 'list' ), true ) ? $layout : 'grid';
+	}
+
+	/**
+	 * Sanitize yes/no toggle settings.
+	 *
+	 * @param mixed $value Toggle value.
+	 * @return string
+	 */
+	public function sanitize_catalog_toggle( $value ) {
+		return $this->shortcode_flag_to_bool( $value ) ? 'yes' : 'no';
 	}
 
 	/**
