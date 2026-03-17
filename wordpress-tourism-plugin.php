@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WordPress Tourism Plugin
  * Description: Tourism package management with manual entry and CSV import/export.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Your Name
  */
 
