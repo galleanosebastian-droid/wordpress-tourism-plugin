@@ -19,6 +19,7 @@ class WTP_Tourism_Plugin {
 	const OPTION_CATALOG_COLUMNS = 'wtp_catalog_columns';
 	const OPTION_CATALOG_LAYOUT = 'wtp_catalog_layout';
 	const OPTION_CATALOG_SHOW_WHATSAPP = 'wtp_catalog_show_whatsapp';
+	const OPTION_CUSTOM_SHORTCODES = 'wtp_custom_shortcodes';
 	const META_FIELD_VISIBILITY = 'wtp_field_visibility';
 
 	/**
@@ -70,6 +71,7 @@ class WTP_Tourism_Plugin {
 		add_action( 'admin_notices', array( $this, 'maybe_render_missing_whatsapp_notice' ) );
 		add_action( 'admin_post_wtp_import_packages', array( $this, 'handle_import' ) );
 		add_action( 'admin_post_wtp_export_packages', array( $this, 'handle_export' ) );
+		add_action( 'admin_post_wtp_manage_custom_shortcode', array( $this, 'handle_custom_shortcode_management' ) );
 		add_filter( 'the_content', array( $this, 'render_single_package_content' ) );
 	}
 
@@ -119,6 +121,20 @@ class WTP_Tourism_Plugin {
 	public function register_shortcodes() {
 		add_shortcode( 'tour_packages', array( $this, 'render_tour_packages_shortcode' ) );
 		add_shortcode( 'tourism_packages', array( $this, 'render_tour_packages_shortcode' ) );
+
+		$custom_shortcodes = $this->get_custom_shortcodes();
+		foreach ( $custom_shortcodes as $shortcode ) {
+			if ( empty( $shortcode['shortcode_name'] ) ) {
+				continue;
+			}
+
+			$tag = $this->sanitize_custom_shortcode_name( $shortcode['shortcode_name'] );
+			if ( in_array( $tag, array( 'tour_packages', 'tourism_packages' ), true ) ) {
+				continue;
+			}
+
+			add_shortcode( $tag, array( $this, 'render_dynamic_catalog_shortcode' ) );
+		}
 	}
 
 	/**
@@ -985,6 +1001,8 @@ class WTP_Tourism_Plugin {
 				submit_button( __( 'Save Settings', 'wordpress-tourism-plugin' ) );
 				?>
 			</form>
+
+			<?php $this->render_custom_shortcodes_manager(); ?>
 		</div>
 		<?php
 	}
@@ -1095,6 +1113,381 @@ class WTP_Tourism_Plugin {
 		echo '<p class="description" style="margin-top:10px;">' . esc_html__( 'Shortcode attributes always override global defaults configured in this page.', 'wordpress-tourism-plugin' ) . '</p>';
 		echo '</div>';
 	}
+
+	/**
+	 * Get default custom shortcodes presets.
+	 *
+	 * @return array<string, array<string,mixed>>
+	 */
+	public function get_default_custom_shortcodes() {
+		return array(
+			'tour_packages_desktop' => array(
+				'internal_name'  => 'tour_packages_desktop',
+				'shortcode_name' => 'tour_packages_desktop',
+				'label'          => __( 'Tour Packages Desktop', 'wordpress-tourism-plugin' ),
+				'settings'       => array(
+					'columns'       => 3,
+					'limit'         => 6,
+					'layout'        => 'grid',
+					'style'         => 'hero',
+					'show_image'    => 'yes',
+					'show_date'     => 'yes',
+					'show_days'     => 'yes',
+					'show_whatsapp' => 'yes',
+				),
+			),
+			'tour_packages_mobile'  => array(
+				'internal_name'  => 'tour_packages_mobile',
+				'shortcode_name' => 'tour_packages_mobile',
+				'label'          => __( 'Tour Packages Mobile', 'wordpress-tourism-plugin' ),
+				'settings'       => array(
+					'columns'       => 1,
+					'limit'         => 4,
+					'layout'        => 'list',
+					'style'         => 'compact',
+					'show_image'    => 'yes',
+					'show_date'     => 'yes',
+					'show_days'     => 'no',
+					'show_whatsapp' => 'yes',
+				),
+			),
+		);
+	}
+
+	/**
+	 * Get all custom shortcodes.
+	 *
+	 * @return array<string, array<string,mixed>>
+	 */
+	public function get_custom_shortcodes() {
+		$saved = get_option( self::OPTION_CUSTOM_SHORTCODES, array() );
+		if ( ! is_array( $saved ) ) {
+			$saved = array();
+		}
+
+		$normalized = $this->sanitize_custom_shortcodes( $saved );
+		if ( empty( $normalized ) ) {
+			$normalized = $this->sanitize_custom_shortcodes( $this->get_default_custom_shortcodes() );
+			update_option( self::OPTION_CUSTOM_SHORTCODES, $normalized );
+		}
+
+		return $normalized;
+	}
+
+	/**
+	 * Sanitize custom shortcodes array.
+	 *
+	 * @param mixed $shortcodes Raw shortcodes.
+	 * @return array<string, array<string,mixed>>
+	 */
+	public function sanitize_custom_shortcodes( $shortcodes ) {
+		if ( ! is_array( $shortcodes ) ) {
+			return array();
+		}
+
+		$cleaned                 = array();
+		$used_internal_names     = array();
+		$used_shortcode_names    = array( 'tour_packages', 'tourism_packages' );
+
+		foreach ( $shortcodes as $shortcode ) {
+			if ( ! is_array( $shortcode ) ) {
+				continue;
+			}
+
+			$internal_name = isset( $shortcode['internal_name'] ) ? $this->sanitize_custom_shortcode_name( $shortcode['internal_name'] ) : '';
+			if ( '' === $internal_name ) {
+				$internal_name = $this->generate_unique_shortcode_name( 'tour_packages_custom', $used_internal_names );
+			}
+			$internal_name = $this->generate_unique_shortcode_name( $internal_name, $used_internal_names );
+			$used_internal_names[] = $internal_name;
+
+			$shortcode_name = isset( $shortcode['shortcode_name'] ) ? $this->sanitize_custom_shortcode_name( $shortcode['shortcode_name'] ) : '';
+			if ( '' === $shortcode_name ) {
+				$shortcode_name = $internal_name;
+			}
+			$shortcode_name = $this->generate_unique_shortcode_name( $shortcode_name, $used_shortcode_names );
+			$used_shortcode_names[] = $shortcode_name;
+
+			$cleaned[ $internal_name ] = array(
+				'internal_name'  => $internal_name,
+				'shortcode_name' => $shortcode_name,
+				'label'          => isset( $shortcode['label'] ) ? sanitize_text_field( $shortcode['label'] ) : ucfirst( str_replace( '_', ' ', $internal_name ) ),
+				'settings'       => $this->sanitize_custom_shortcode_settings( isset( $shortcode['settings'] ) ? $shortcode['settings'] : array() ),
+			);
+		}
+
+		return $cleaned;
+	}
+
+	/**
+	 * Sanitize shortcode slug.
+	 *
+	 * @param string $name Raw name.
+	 * @return string
+	 */
+	public function sanitize_custom_shortcode_name( $name ) {
+		$name = strtolower( sanitize_key( (string) $name ) );
+		return trim( $name, '_' );
+	}
+
+	/**
+	 * Sanitize shortcode display settings.
+	 *
+	 * @param mixed $settings Raw settings.
+	 * @return array<string,mixed>
+	 */
+	public function sanitize_custom_shortcode_settings( $settings ) {
+		$settings = is_array( $settings ) ? $settings : array();
+
+		return array(
+			'columns'       => $this->sanitize_catalog_columns( isset( $settings['columns'] ) ? $settings['columns'] : 3 ),
+			'limit'         => $this->sanitize_catalog_limit( isset( $settings['limit'] ) ? $settings['limit'] : 6 ),
+			'layout'        => $this->sanitize_catalog_layout( isset( $settings['layout'] ) ? $settings['layout'] : 'grid' ),
+			'style'         => $this->sanitize_catalog_style( isset( $settings['style'] ) ? $settings['style'] : 'hero' ),
+			'show_image'    => $this->sanitize_catalog_toggle( isset( $settings['show_image'] ) ? $settings['show_image'] : 'yes' ),
+			'show_date'     => $this->sanitize_catalog_toggle( isset( $settings['show_date'] ) ? $settings['show_date'] : 'yes' ),
+			'show_days'     => $this->sanitize_catalog_toggle( isset( $settings['show_days'] ) ? $settings['show_days'] : 'yes' ),
+			'show_whatsapp' => $this->sanitize_catalog_toggle( isset( $settings['show_whatsapp'] ) ? $settings['show_whatsapp'] : 'yes' ),
+		);
+	}
+
+	/**
+	 * Build a new custom shortcode item.
+	 *
+	 * @param string $internal_name Internal key.
+	 * @param array  $existing Existing shortcodes.
+	 * @return array<string,mixed>
+	 */
+	public function build_new_custom_shortcode( $internal_name = '', $existing = array() ) {
+		$existing = is_array( $existing ) ? $existing : array();
+		$internal = $this->sanitize_custom_shortcode_name( $internal_name );
+		$internal = $this->generate_unique_shortcode_name( $internal ? $internal : 'tour_packages_custom', array_keys( $existing ) );
+
+		$used_shortcode_names = array( 'tour_packages', 'tourism_packages' );
+		foreach ( $existing as $item ) {
+			if ( isset( $item['shortcode_name'] ) ) {
+				$used_shortcode_names[] = $item['shortcode_name'];
+			}
+		}
+		$shortcode_name = $this->generate_unique_shortcode_name( $internal, $used_shortcode_names );
+
+		return array(
+			'internal_name'  => $internal,
+			'shortcode_name' => $shortcode_name,
+			'label'          => ucwords( str_replace( '_', ' ', $internal ) ),
+			'settings'       => $this->sanitize_custom_shortcode_settings( array() ),
+		);
+	}
+
+	/**
+	 * Generate unique shortcode name.
+	 *
+	 * @param string $base Base name.
+	 * @param array  $used_names Used names.
+	 * @return string
+	 */
+	public function generate_unique_shortcode_name( $base, $used_names = array() ) {
+		$base = $this->sanitize_custom_shortcode_name( $base );
+		if ( '' === $base ) {
+			$base = 'tour_packages_custom';
+		}
+
+		$used_names = array_map( array( $this, 'sanitize_custom_shortcode_name' ), is_array( $used_names ) ? $used_names : array() );
+		$candidate  = $base;
+		$index      = 2;
+		while ( in_array( $candidate, $used_names, true ) ) {
+			$candidate = $base . '_' . $index;
+			$index++;
+		}
+
+		return $candidate;
+	}
+
+	/**
+	 * Render custom shortcodes manager section.
+	 *
+	 * @return void
+	 */
+	public function render_custom_shortcodes_manager() {
+		$shortcodes = $this->get_custom_shortcodes();
+		$status     = isset( $_GET['wtp_shortcode_status'] ) ? sanitize_key( wp_unslash( $_GET['wtp_shortcode_status'] ) ) : '';
+		if ( in_array( $status, array( 'created', 'updated', 'duplicated', 'deleted' ), true ) ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Custom shortcode updated successfully.', 'wordpress-tourism-plugin' ) . '</p></div>';
+		}
+
+		echo '<hr style="margin:28px 0;" />';
+		echo '<h2>' . esc_html__( 'Shortcodes personalizados', 'wordpress-tourism-plugin' ) . '</h2>';
+		echo '<p>' . esc_html__( 'Crea y gestiona variantes del catálogo usando shortcodes guardados.', 'wordpress-tourism-plugin' ) . '</p>';
+
+		if ( empty( $shortcodes ) ) {
+			echo '<p>' . esc_html__( 'No hay shortcodes personalizados todavía.', 'wordpress-tourism-plugin' ) . '</p>';
+		}
+
+		foreach ( $shortcodes as $internal_name => $shortcode ) {
+			echo '<div style="background:#fff;border:1px solid #dcdcde;padding:14px;margin:12px 0;max-width:980px;">';
+			echo '<p style="margin-top:0;"><strong><code>[' . esc_html( $shortcode['shortcode_name'] ) . ']</code></strong></p>';
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+			echo '<input type="hidden" name="action" value="wtp_manage_custom_shortcode" />';
+			echo '<input type="hidden" name="operation" value="update" />';
+			echo '<input type="hidden" name="source_internal_name" value="' . esc_attr( $internal_name ) . '" />';
+			wp_nonce_field( 'wtp_manage_custom_shortcode' );
+			echo '<table class="form-table" role="presentation"><tbody>';
+			echo '<tr><th scope="row"><label>' . esc_html__( 'Nombre interno', 'wordpress-tourism-plugin' ) . '</label></th><td><input type="text" class="regular-text" name="internal_name" value="' . esc_attr( $shortcode['internal_name'] ) . '" /></td></tr>';
+			echo '<tr><th scope="row"><label>' . esc_html__( 'Nombre del shortcode', 'wordpress-tourism-plugin' ) . '</label></th><td><input type="text" class="regular-text" name="shortcode_name" value="' . esc_attr( $shortcode['shortcode_name'] ) . '" /></td></tr>';
+			echo '<tr><th scope="row"><label>' . esc_html__( 'Nombre visual', 'wordpress-tourism-plugin' ) . '</label></th><td><input type="text" class="regular-text" name="label" value="' . esc_attr( $shortcode['label'] ) . '" /></td></tr>';
+			echo '</tbody></table>';
+
+			$this->render_custom_shortcode_settings_fields( $shortcode['settings'] );
+			submit_button( __( 'Guardar shortcode', 'wordpress-tourism-plugin' ), 'primary', 'submit', false );
+			echo '</form>';
+
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin-right:8px;">';
+			echo '<input type="hidden" name="action" value="wtp_manage_custom_shortcode" />';
+			echo '<input type="hidden" name="operation" value="duplicate" />';
+			echo '<input type="hidden" name="source_internal_name" value="' . esc_attr( $internal_name ) . '" />';
+			wp_nonce_field( 'wtp_manage_custom_shortcode' );
+			submit_button( __( 'Duplicar', 'wordpress-tourism-plugin' ), 'secondary', 'submit', false );
+			echo '</form>';
+
+			echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;">';
+			echo '<input type="hidden" name="action" value="wtp_manage_custom_shortcode" />';
+			echo '<input type="hidden" name="operation" value="delete" />';
+			echo '<input type="hidden" name="source_internal_name" value="' . esc_attr( $internal_name ) . '" />';
+			wp_nonce_field( 'wtp_manage_custom_shortcode' );
+			submit_button( __( 'Eliminar', 'wordpress-tourism-plugin' ), 'delete', 'submit', false, array( 'onclick' => "return confirm('¿Eliminar shortcode personalizado?');" ) );
+			echo '</form>';
+			echo '</div>';
+		}
+
+		$new_shortcode = $this->build_new_custom_shortcode( '', $shortcodes );
+		echo '<div style="background:#fff;border:1px solid #dcdcde;padding:14px;margin:18px 0;max-width:980px;">';
+		echo '<h3 style="margin-top:0;">' . esc_html__( 'Crear nuevo shortcode', 'wordpress-tourism-plugin' ) . '</h3>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="wtp_manage_custom_shortcode" />';
+		echo '<input type="hidden" name="operation" value="create" />';
+		wp_nonce_field( 'wtp_manage_custom_shortcode' );
+		echo '<table class="form-table" role="presentation"><tbody>';
+		echo '<tr><th scope="row"><label>' . esc_html__( 'Nombre interno', 'wordpress-tourism-plugin' ) . '</label></th><td><input type="text" class="regular-text" name="internal_name" value="' . esc_attr( $new_shortcode['internal_name'] ) . '" /></td></tr>';
+		echo '<tr><th scope="row"><label>' . esc_html__( 'Nombre del shortcode', 'wordpress-tourism-plugin' ) . '</label></th><td><input type="text" class="regular-text" name="shortcode_name" value="' . esc_attr( $new_shortcode['shortcode_name'] ) . '" /></td></tr>';
+		echo '<tr><th scope="row"><label>' . esc_html__( 'Nombre visual', 'wordpress-tourism-plugin' ) . '</label></th><td><input type="text" class="regular-text" name="label" value="' . esc_attr( $new_shortcode['label'] ) . '" /></td></tr>';
+		echo '</tbody></table>';
+		$this->render_custom_shortcode_settings_fields( $new_shortcode['settings'] );
+		submit_button( __( 'Crear shortcode', 'wordpress-tourism-plugin' ) );
+		echo '</form>';
+		echo '</div>';
+	}
+
+	/**
+	 * Render display settings fields for custom shortcode.
+	 *
+	 * @param array $settings Shortcode settings.
+	 * @return void
+	 */
+	public function render_custom_shortcode_settings_fields( $settings ) {
+		$settings = $this->sanitize_custom_shortcode_settings( $settings );
+		$styles   = $this->get_catalog_style_options();
+
+		echo '<fieldset><legend><strong>' . esc_html__( 'Visualización', 'wordpress-tourism-plugin' ) . '</strong></legend>';
+		echo '<p><label>' . esc_html__( 'Límite', 'wordpress-tourism-plugin' ) . ' <input type="number" min="-1" name="settings[limit]" value="' . esc_attr( $settings['limit'] ) . '" class="small-text" /></label> ';
+		echo '<label>' . esc_html__( 'Columnas', 'wordpress-tourism-plugin' ) . ' <input type="number" min="1" max="4" name="settings[columns]" value="' . esc_attr( $settings['columns'] ) . '" class="small-text" /></label></p>';
+		echo '<p><label>' . esc_html__( 'Layout', 'wordpress-tourism-plugin' ) . ' <select name="settings[layout]"><option value="grid" ' . selected( $settings['layout'], 'grid', false ) . '>grid</option><option value="list" ' . selected( $settings['layout'], 'list', false ) . '>list</option></select></label> ';
+		echo '<label>' . esc_html__( 'Style', 'wordpress-tourism-plugin' ) . ' <select name="settings[style]">';
+		foreach ( $styles as $key => $label ) {
+			echo '<option value="' . esc_attr( $key ) . '" ' . selected( $settings['style'], $key, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select></label></p>';
+
+		echo '<p>';
+		echo '<input type="hidden" name="settings[show_image]" value="no" /><label><input type="checkbox" name="settings[show_image]" value="yes" ' . checked( $settings['show_image'], 'yes', false ) . ' /> ' . esc_html__( 'Mostrar imagen', 'wordpress-tourism-plugin' ) . '</label><br />';
+		echo '<input type="hidden" name="settings[show_date]" value="no" /><label><input type="checkbox" name="settings[show_date]" value="yes" ' . checked( $settings['show_date'], 'yes', false ) . ' /> ' . esc_html__( 'Mostrar fecha', 'wordpress-tourism-plugin' ) . '</label><br />';
+		echo '<input type="hidden" name="settings[show_days]" value="no" /><label><input type="checkbox" name="settings[show_days]" value="yes" ' . checked( $settings['show_days'], 'yes', false ) . ' /> ' . esc_html__( 'Mostrar días', 'wordpress-tourism-plugin' ) . '</label><br />';
+		echo '<input type="hidden" name="settings[show_whatsapp]" value="no" /><label><input type="checkbox" name="settings[show_whatsapp]" value="yes" ' . checked( $settings['show_whatsapp'], 'yes', false ) . ' /> ' . esc_html__( 'Mostrar WhatsApp', 'wordpress-tourism-plugin' ) . '</label>';
+		echo '</p></fieldset>';
+	}
+
+	/**
+	 * Handle custom shortcode management actions.
+	 *
+	 * @return void
+	 */
+	public function handle_custom_shortcode_management() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Unauthorized.', 'wordpress-tourism-plugin' ) );
+		}
+
+		check_admin_referer( 'wtp_manage_custom_shortcode' );
+		$operation          = isset( $_POST['operation'] ) ? sanitize_key( wp_unslash( $_POST['operation'] ) ) : '';
+		$source_internal    = isset( $_POST['source_internal_name'] ) ? $this->sanitize_custom_shortcode_name( wp_unslash( $_POST['source_internal_name'] ) ) : '';
+		$shortcodes         = $this->get_custom_shortcodes();
+		$status             = 'updated';
+
+		if ( 'create' === $operation ) {
+			$item = array(
+				'internal_name'  => isset( $_POST['internal_name'] ) ? wp_unslash( $_POST['internal_name'] ) : '',
+				'shortcode_name' => isset( $_POST['shortcode_name'] ) ? wp_unslash( $_POST['shortcode_name'] ) : '',
+				'label'          => isset( $_POST['label'] ) ? wp_unslash( $_POST['label'] ) : '',
+				'settings'       => isset( $_POST['settings'] ) ? wp_unslash( $_POST['settings'] ) : array(),
+			);
+			$shortcodes[] = $item;
+			$status       = 'created';
+		} elseif ( 'update' === $operation && isset( $shortcodes[ $source_internal ] ) ) {
+			$shortcodes[ $source_internal ] = array(
+				'internal_name'  => isset( $_POST['internal_name'] ) ? wp_unslash( $_POST['internal_name'] ) : $source_internal,
+				'shortcode_name' => isset( $_POST['shortcode_name'] ) ? wp_unslash( $_POST['shortcode_name'] ) : $shortcodes[ $source_internal ]['shortcode_name'],
+				'label'          => isset( $_POST['label'] ) ? wp_unslash( $_POST['label'] ) : $shortcodes[ $source_internal ]['label'],
+				'settings'       => isset( $_POST['settings'] ) ? wp_unslash( $_POST['settings'] ) : $shortcodes[ $source_internal ]['settings'],
+			);
+			$status = 'updated';
+		} elseif ( 'duplicate' === $operation && isset( $shortcodes[ $source_internal ] ) ) {
+			$clone                   = $shortcodes[ $source_internal ];
+			$clone['internal_name']  = $clone['internal_name'] . '_copy';
+			$clone['shortcode_name'] = $clone['shortcode_name'] . '_copy';
+			$clone['label']          = $clone['label'] . ' (Copy)';
+			$shortcodes[]            = $clone;
+			$status                  = 'duplicated';
+		} elseif ( 'delete' === $operation && isset( $shortcodes[ $source_internal ] ) ) {
+			unset( $shortcodes[ $source_internal ] );
+			$status = 'deleted';
+		}
+
+		$shortcodes = $this->sanitize_custom_shortcodes( $shortcodes );
+		if ( empty( $shortcodes ) ) {
+			$shortcodes = $this->sanitize_custom_shortcodes( $this->get_default_custom_shortcodes() );
+		}
+		update_option( self::OPTION_CUSTOM_SHORTCODES, $shortcodes );
+
+		$redirect_url = add_query_arg(
+			array(
+				'post_type'            => self::POST_TYPE,
+				'page'                 => 'wtp-display-settings',
+				'wtp_shortcode_status' => $status,
+			),
+			admin_url( 'edit.php' )
+		);
+		wp_safe_redirect( $redirect_url );
+		exit;
+	}
+
+	/**
+	 * Render dynamic shortcode callback using saved configuration.
+	 *
+	 * @param array  $atts Shortcode attributes.
+	 * @param string $content Content.
+	 * @param string $tag Shortcode tag.
+	 * @return string
+	 */
+	public function render_dynamic_catalog_shortcode( $atts = array(), $content = '', $tag = '' ) {
+		$tag              = $this->sanitize_custom_shortcode_name( $tag );
+		$custom_shortcodes = $this->get_custom_shortcodes();
+		foreach ( $custom_shortcodes as $shortcode ) {
+			if ( $tag === $shortcode['shortcode_name'] ) {
+				$merged_atts = wp_parse_args( is_array( $atts ) ? $atts : array(), $shortcode['settings'] );
+				return $this->render_tour_packages_shortcode( $merged_atts );
+			}
+		}
+		return '';
+	}
+
 
 	/**
 	 * Allowed catalog style options.
