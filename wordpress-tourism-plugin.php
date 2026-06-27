@@ -19,6 +19,7 @@ class WTP_Tourism_Plugin {
 	const OPTION_CATALOG_COLUMNS = 'wtp_catalog_columns';
 	const OPTION_CATALOG_LAYOUT = 'wtp_catalog_layout';
 	const OPTION_CATALOG_SHOW_WHATSAPP = 'wtp_catalog_show_whatsapp';
+	const OPTION_CATALOG_ORDERBY = 'wtp_catalog_orderby';
 	const OPTION_CUSTOM_SHORTCODES = 'wtp_custom_shortcodes';
 	const META_FIELD_VISIBILITY = 'wtp_field_visibility';
 
@@ -252,6 +253,7 @@ class WTP_Tourism_Plugin {
 		$default_columns       = $this->sanitize_catalog_columns( get_option( self::OPTION_CATALOG_COLUMNS, 3 ) );
 		$default_layout        = $this->sanitize_catalog_layout( get_option( self::OPTION_CATALOG_LAYOUT, 'grid' ) );
 		$default_show_whatsapp = $this->sanitize_catalog_toggle( get_option( self::OPTION_CATALOG_SHOW_WHATSAPP, 'yes' ) );
+		$default_orderby       = $this->sanitize_catalog_orderby( get_option( self::OPTION_CATALOG_ORDERBY, 'modified' ) );
 
 		$atts = shortcode_atts(
 			array(
@@ -264,6 +266,8 @@ class WTP_Tourism_Plugin {
 				'show_departure_date' => 'yes',
 				'show_days'           => 'yes',
 				'show_whatsapp'       => $default_show_whatsapp,
+				'orderby'             => $default_orderby,
+				'order'               => 'DESC',
 			),
 			$atts,
 			'tourism_packages'
@@ -285,8 +289,10 @@ class WTP_Tourism_Plugin {
 			: $this->shortcode_flag_to_bool( $atts['show_departure_date'] );
 		$show_days           = $this->shortcode_flag_to_bool( $atts['show_days'] );
 		$show_whatsapp       = $this->shortcode_flag_to_bool( $atts['show_whatsapp'] );
+		$orderby             = $this->sanitize_catalog_orderby( $atts['orderby'] );
+		$order               = $this->sanitize_catalog_order( $atts['order'] );
 
-		$packages = $this->get_sorted_catalog_packages( $limit );
+		$packages = $this->get_sorted_catalog_packages( $limit, $orderby, $order );
 
 		if ( empty( $packages ) ) {
 			return '<p>' . esc_html__( 'No tourism packages available at the moment.', 'wordpress-tourism-plugin' ) . '</p>';
@@ -354,56 +360,31 @@ class WTP_Tourism_Plugin {
 	}
 
 	/**
-	 * Get published catalog packages sorted by nearest departure date.
+	 * Get published catalog packages ordered by the selected catalog field.
 	 *
-	 * @param int $limit Number of packages to return.
+	 * @param int    $limit Number of packages to return.
+	 * @param string $orderby Catalog order field.
+	 * @param string $order Sort direction.
 	 * @return WP_Post[]
 	 */
-	private function get_sorted_catalog_packages( $limit = -1 ) {
-		$packages = get_posts(
-			array(
-				'post_type'      => self::POST_TYPE,
-				'post_status'    => 'publish',
-				'posts_per_page' => -1,
-			)
+	private function get_sorted_catalog_packages( $limit = -1, $orderby = 'modified', $order = 'DESC' ) {
+		$orderby    = $this->sanitize_catalog_orderby( $orderby );
+		$order      = $this->sanitize_catalog_order( $order );
+		$query_args = array(
+			'post_type'      => self::POST_TYPE,
+			'post_status'    => 'publish',
+			'posts_per_page' => $limit,
+			'order'          => $order,
 		);
 
-		usort(
-			$packages,
-			array( $this, 'sort_packages_by_departure_date' )
-		);
-
-		if ( $limit > 0 ) {
-			$packages = array_slice( $packages, 0, $limit );
+		if ( 'departure_date' === $orderby ) {
+			$query_args['meta_key'] = 'departure_date';
+			$query_args['orderby']  = 'meta_value';
+		} else {
+			$query_args['orderby'] = $orderby;
 		}
 
-		return $packages;
-	}
-
-	/**
-	 * Sort package posts by nearest departure date.
-	 *
-	 * @param WP_Post $a First package.
-	 * @param WP_Post $b Second package.
-	 * @return int
-	 */
-	private function sort_packages_by_departure_date( $a, $b ) {
-		$date_a = strtotime( $this->get_package_value( $a->ID, 'departure_date' ) );
-		$date_b = strtotime( $this->get_package_value( $b->ID, 'departure_date' ) );
-
-		if ( false === $date_a && false === $date_b ) {
-			return 0;
-		}
-
-		if ( false === $date_a ) {
-			return 1;
-		}
-
-		if ( false === $date_b ) {
-			return -1;
-		}
-
-		return $date_a <=> $date_b;
+		return get_posts( $query_args );
 	}
 
 	/**
@@ -885,6 +866,16 @@ class WTP_Tourism_Plugin {
 			)
 		);
 
+		register_setting(
+			'wtp_display_settings',
+			self::OPTION_CATALOG_ORDERBY,
+			array(
+				'type'              => 'string',
+				'sanitize_callback' => array( $this, 'sanitize_catalog_orderby' ),
+				'default'           => 'modified',
+			)
+		);
+
 		add_settings_section(
 			'wtp_display_section',
 			__( 'Field Labels', 'wordpress-tourism-plugin' ),
@@ -1057,6 +1048,7 @@ class WTP_Tourism_Plugin {
 		$columns       = $this->sanitize_catalog_columns( get_option( self::OPTION_CATALOG_COLUMNS, 3 ) );
 		$layout        = $this->sanitize_catalog_layout( get_option( self::OPTION_CATALOG_LAYOUT, 'grid' ) );
 		$show_whatsapp = $this->sanitize_catalog_toggle( get_option( self::OPTION_CATALOG_SHOW_WHATSAPP, 'yes' ) );
+		$orderby       = $this->sanitize_catalog_orderby( get_option( self::OPTION_CATALOG_ORDERBY, 'modified' ) );
 
 		echo '<fieldset>';
 		echo '<label for="wtp_catalog_limit"><strong>' . esc_html__( 'Default number of packages', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
@@ -1073,6 +1065,14 @@ class WTP_Tourism_Plugin {
 		echo '<option value="list" ' . selected( $layout, 'list', false ) . '>' . esc_html__( 'List', 'wordpress-tourism-plugin' ) . '</option>';
 		echo '</select>';
 		echo '<p class="description" style="margin:6px 0 12px;">' . esc_html__( 'Controls whether package cards are shown in a grid or in a vertical list.', 'wordpress-tourism-plugin' ) . '</p>';
+
+		echo '<label for="wtp_catalog_orderby"><strong>' . esc_html__( 'Default catalog order', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
+		echo '<select id="wtp_catalog_orderby" name="' . esc_attr( self::OPTION_CATALOG_ORDERBY ) . '">';
+		foreach ( $this->get_catalog_orderby_options() as $value => $label ) {
+			echo '<option value="' . esc_attr( $value ) . '" ' . selected( $orderby, $value, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select>';
+		echo '<p class="description" style="margin:6px 0 12px;">' . esc_html__( 'Default is last updated first. The shortcode can override this with orderby="modified|date|departure_date" and order="ASC|DESC".', 'wordpress-tourism-plugin' ) . '</p>';
 
 		echo '<label for="wtp_catalog_show_whatsapp"><strong>' . esc_html__( 'Show WhatsApp button by default', 'wordpress-tourism-plugin' ) . '</strong></label><br />';
 		echo '<select id="wtp_catalog_show_whatsapp" name="' . esc_attr( self::OPTION_CATALOG_SHOW_WHATSAPP ) . '">';
@@ -1097,6 +1097,7 @@ class WTP_Tourism_Plugin {
 		echo '<li><code>[tourism_packages limit="6" columns="3" layout="grid"]</code></li>';
 		echo '<li><code>[tourism_packages layout="list" show_image="no" show_date="yes" show_days="yes" show_whatsapp="no"]</code></li>';
 		echo '<li><code>[tourism_packages style="compact" limit="4"]</code></li>';
+		echo '<li><code>[tourism_packages orderby="modified" order="DESC"]</code></li>';
 		echo '</ul>';
 
 		echo '<table class="widefat striped" style="max-width:100%;margin-top:10px;">';
@@ -1109,6 +1110,8 @@ class WTP_Tourism_Plugin {
 		echo '<tr><td><code>show_date</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide departure date in each card.', 'wordpress-tourism-plugin' ) . '</td></tr>';
 		echo '<tr><td><code>show_days</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide number of days in each card.', 'wordpress-tourism-plugin' ) . '</td></tr>';
 		echo '<tr><td><code>show_whatsapp</code></td><td><code>yes/no</code>, <code>true/false</code>, <code>1/0</code></td><td>' . esc_html__( 'Show or hide the WhatsApp inquiry button.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>orderby</code></td><td><code>modified</code>, <code>date</code>, <code>departure_date</code></td><td>' . esc_html__( 'Order packages by last update, creation date, or package departure date.', 'wordpress-tourism-plugin' ) . '</td></tr>';
+		echo '<tr><td><code>order</code></td><td><code>DESC</code>, <code>ASC</code></td><td>' . esc_html__( 'Sort direction. Default is DESC.', 'wordpress-tourism-plugin' ) . '</td></tr>';
 		echo '</tbody></table>';
 		echo '<p class="description" style="margin-top:10px;">' . esc_html__( 'Shortcode attributes always override global defaults configured in this page.', 'wordpress-tourism-plugin' ) . '</p>';
 		echo '</div>';
@@ -1240,6 +1243,8 @@ class WTP_Tourism_Plugin {
 		$settings = is_array( $settings ) ? $settings : array();
 
 		return array(
+			'orderby'       => $this->sanitize_catalog_orderby( isset( $settings['orderby'] ) ? $settings['orderby'] : get_option( self::OPTION_CATALOG_ORDERBY, 'modified' ) ),
+			'order'         => $this->sanitize_catalog_order( isset( $settings['order'] ) ? $settings['order'] : 'DESC' ),
 			'columns'       => $this->sanitize_catalog_columns( isset( $settings['columns'] ) ? $settings['columns'] : 3 ),
 			'limit'         => $this->sanitize_catalog_limit( isset( $settings['limit'] ) ? $settings['limit'] : 6 ),
 			'layout'        => $this->sanitize_catalog_layout( isset( $settings['layout'] ) ? $settings['layout'] : 'grid' ),
@@ -1390,6 +1395,13 @@ class WTP_Tourism_Plugin {
 		echo '<fieldset><legend><strong>' . esc_html__( 'Visualización', 'wordpress-tourism-plugin' ) . '</strong></legend>';
 		echo '<p><label>' . esc_html__( 'Límite', 'wordpress-tourism-plugin' ) . ' <input type="number" min="-1" name="settings[limit]" value="' . esc_attr( $settings['limit'] ) . '" class="small-text" /></label> ';
 		echo '<label>' . esc_html__( 'Columnas', 'wordpress-tourism-plugin' ) . ' <input type="number" min="1" max="4" name="settings[columns]" value="' . esc_attr( $settings['columns'] ) . '" class="small-text" /></label></p>';
+		echo '<p><label>' . esc_html__( 'Order by', 'wordpress-tourism-plugin' ) . ' <select name="settings[orderby]">';
+		foreach ( $this->get_catalog_orderby_options() as $value => $label ) {
+			echo '<option value="' . esc_attr( $value ) . '" ' . selected( $settings['orderby'], $value, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select></label> ';
+		echo '<label>' . esc_html__( 'Order', 'wordpress-tourism-plugin' ) . ' <select name="settings[order]"><option value="DESC" ' . selected( $settings['order'], 'DESC', false ) . '>DESC</option><option value="ASC" ' . selected( $settings['order'], 'ASC', false ) . '>ASC</option></select></label></p>';
+
 		echo '<p><label>' . esc_html__( 'Layout', 'wordpress-tourism-plugin' ) . ' <select name="settings[layout]"><option value="grid" ' . selected( $settings['layout'], 'grid', false ) . '>grid</option><option value="list" ' . selected( $settings['layout'], 'list', false ) . '>list</option></select></label> ';
 		echo '<label>' . esc_html__( 'Style', 'wordpress-tourism-plugin' ) . ' <select name="settings[style]">';
 		foreach ( $styles as $key => $label ) {
@@ -1532,6 +1544,43 @@ class WTP_Tourism_Plugin {
 		}
 
 		return min( 4, $columns );
+	}
+
+	/**
+	 * Allowed catalog orderby options.
+	 *
+	 * @return string[]
+	 */
+	private function get_catalog_orderby_options() {
+		return array(
+			'modified'       => __( 'Last updated', 'wordpress-tourism-plugin' ),
+			'date'           => __( 'Creation date', 'wordpress-tourism-plugin' ),
+			'departure_date' => __( 'Departure date', 'wordpress-tourism-plugin' ),
+		);
+	}
+
+	/**
+	 * Sanitize catalog order field.
+	 *
+	 * @param mixed $orderby Order field.
+	 * @return string
+	 */
+	public function sanitize_catalog_orderby( $orderby ) {
+		$orderby = sanitize_key( (string) $orderby );
+
+		return array_key_exists( $orderby, $this->get_catalog_orderby_options() ) ? $orderby : 'modified';
+	}
+
+	/**
+	 * Sanitize catalog order direction.
+	 *
+	 * @param mixed $order Order direction.
+	 * @return string
+	 */
+	public function sanitize_catalog_order( $order ) {
+		$order = strtoupper( sanitize_key( (string) $order ) );
+
+		return in_array( $order, array( 'ASC', 'DESC' ), true ) ? $order : 'DESC';
 	}
 
 	/**
